@@ -1,0 +1,31 @@
+{
+  "name": "hexhaven",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Hexhaven - an open-source, original-art 3D hex settlement strategy game with authoritative online multiplayer.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/client"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:shared": "npm run build -w @hexhaven/shared",
+    "build:client": "npm run build -w @hexhaven/client",
+    "build:server": "npm run build -w @hexhaven/server",
+    "build": "npm run build:shared && npm run build:server && npm run build:client",
+    "dev": "npm run build:shared && concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev -w @hexhaven/server",
+    "dev:client": "npm run dev -w @hexhaven/client",
+    "start": "node packages/server/dist/index.js",
+    "test": "npm run test -w @hexhaven/shared",
+    "typecheck": "tsc -b packages/shared packages/server packages/client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
