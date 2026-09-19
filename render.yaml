@@ -1,0 +1,11 @@
+# Render.com blueprint. Point Render at this repository and it will pick this up.
+services:
+  - type: web
+    name: hexhaven
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: PORT
+        value: 8080
