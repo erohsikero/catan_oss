@@ -45,9 +45,12 @@ and artwork are, so Hexhaven uses its own name and its own art throughout.
 
 ## Quick start
 
-Requires Node 20 or newer.
+Requires Node 20 or newer to build and run, and Node 22 for the test suite,
+which uses the runtime's TypeScript stripping. There is an `.nvmrc`, so
+`nvm use` picks the right one.
 
 ```bash
+nvm use            # optional, selects Node 22
 npm install
 npm run build
 npm start          # http://localhost:8080

@@ -1,7 +1,13 @@
 import * as THREE from 'three';
 
 /**
- * The sea.
+ * The sea's shader material.
+ *
+ * Kept in its own module, deliberately named so it cannot collide with
+ * `Water.tsx` when only letter case separates them: a case-insensitive
+ * filesystem (macOS, Windows) would resolve `./Water.js` to whichever of the
+ * two it happened to find, and the build would fail on a missing export.
+ *
  *
  * A shader rather than a texture: the swell has to move, and the shoreline
  * needs foam that follows the island outline. Gerstner-ish sums displace the

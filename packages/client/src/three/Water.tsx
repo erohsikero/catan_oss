@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type * as THREE from 'three';
-import { createWaterMaterial } from './water.js';
+import { createWaterMaterial } from './waterMaterial.js';
 
 /**
  * The sea plane. Segmented enough for the vertex swell to show, and sized to

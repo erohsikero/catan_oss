@@ -14,6 +14,7 @@ COPY packages/client/package.json packages/client/
 RUN npm ci
 
 COPY tsconfig.base.json ./
+COPY scripts ./scripts
 COPY packages ./packages
 RUN npm run build
 

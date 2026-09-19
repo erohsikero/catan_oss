@@ -18,6 +18,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Check for case-insensitive filename collisions
+        run: npm run check:case
+
       - name: Build all packages
         run: npm run build
 
