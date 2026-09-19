@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   Action,
+  Board,
   ClientMessage,
   GameSettings,
   PlayerView,
@@ -85,6 +86,9 @@ export function useConnection(): Connection {
   const socketRef = useRef<WebSocket | null>(null);
   const queueRef = useRef<ClientMessage[]>([]);
   const attemptsRef = useRef(0);
+  // The server sends the board once per game and omits it from later
+  // updates, so the last one received is kept here and spliced back in.
+  const boardRef = useRef<Board | null>(null);
   const nameRef = useRef(name);
   nameRef.current = name;
 
@@ -109,6 +113,7 @@ export function useConnection(): Connection {
 
       socket.onopen = () => {
         attemptsRef.current = 0;
+        boardRef.current = null;
         setStatus('open');
         let token: string | undefined;
         try {
@@ -151,10 +156,20 @@ export function useConnection(): Connection {
             setView(null);
             setSettings(null);
             break;
-          case 'state':
-            setView(msg.view);
+          case 'state': {
+            if (msg.view.board) boardRef.current = msg.view.board;
+            const board = msg.view.board ?? boardRef.current;
+            if (board) {
+              setView({ ...msg.view, board } as PlayerView);
+            } else {
+              // Nothing to draw without a board. Ordered delivery means this
+              // should not happen, but asking for a full state is cheap and
+              // beats leaving the player staring at a blank screen.
+              socket.send(JSON.stringify({ t: 'resync' }));
+            }
             setSettings(msg.settings);
             break;
+          }
           case 'chat':
             setChat((prev) => [...prev.slice(-80), msg]);
             break;

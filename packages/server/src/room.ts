@@ -27,10 +27,19 @@ export interface Member {
   send(msg: ServerMessage): void;
   /** False while the socket is gone but the seat is still held open. */
   online: boolean;
+  /**
+   * Whether this socket has already received the board. It is fixed for the
+   * life of a game, so it is sent once and omitted afterwards; a reconnecting
+   * socket arrives with this false and is sent it again.
+   */
+  hasBoard?: boolean;
 }
 
-/** How long a bot pauses between actions, so humans can follow what it did. */
-const BOT_THINK_MS = 650;
+/**
+ * How long a bot pauses between actions, so humans can follow what it did.
+ * Tests and CI set this near zero to play a full game in seconds.
+ */
+const BOT_THINK_MS = Math.max(0, Number(process.env.HEXHAVEN_BOT_THINK_MS ?? 650));
 /** A disconnected player keeps their seat this long before bots take over. */
 export const RECONNECT_GRACE_MS = 120_000;
 
@@ -178,6 +187,7 @@ export class Room {
     const players = this.state.players;
     this.state = createGame(this.id, randomSeed(), this.settings);
     this.state.players = players;
+    this.resendBoard();
     this.broadcast();
   }
 
@@ -274,8 +284,32 @@ export class Room {
   broadcast(): void {
     for (const member of this.members.values()) {
       if (!member.online) continue;
-      member.send({ t: 'state', view: viewFor(this.state, member.playerId), settings: this.settings });
+      const includeBoard = member.hasBoard !== true;
+      member.send({
+        t: 'state',
+        view: viewFor(this.state, member.playerId, { includeBoard }),
+        settings: this.settings,
+      });
+      member.hasBoard = true;
     }
+  }
+
+  /** Forces the board back into the next update, after a reconnect or a re-roll. */
+  private resendBoard(): void {
+    for (const member of this.members.values()) member.hasBoard = false;
+  }
+
+  /** Sends one member a complete state, board included. */
+  resync(playerId: PlayerId): void {
+    const member = this.members.get(playerId);
+    if (!member || !member.online) return;
+    member.hasBoard = false;
+    member.send({
+      t: 'state',
+      view: viewFor(this.state, playerId, { includeBoard: true }),
+      settings: this.settings,
+    });
+    member.hasBoard = true;
   }
 
   sendChat(from: PlayerId, text: string): void {

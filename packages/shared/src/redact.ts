@@ -1,5 +1,5 @@
 import { publicVictoryPoints, totalVictoryPoints } from './engine.js';
-import type { OpponentView, PlayerView } from './protocol.js';
+import type { OpponentView, PlayerView, PlayerViewWire } from './protocol.js';
 import type { GameState, LogEntry, PlayerState } from './state.js';
 import { bagTotal, devTotal, type PlayerId } from './types.js';
 
@@ -46,6 +46,19 @@ function redactLog(entries: readonly LogEntry[], viewerId: PlayerId | null): Log
   });
 }
 
+export interface ViewOptions {
+  /**
+   * Omit the board. It never changes during a game, so it is sent on the
+   * first update to a client and left out of the rest.
+   */
+  includeBoard?: boolean;
+  /** How many of the most recent log entries to send. */
+  logLimit?: number;
+}
+
+/** Entries beyond this are history the client never displays. */
+const DEFAULT_LOG_LIMIT = 60;
+
 /**
  * Builds the view sent to one player.
  *
@@ -53,13 +66,15 @@ function redactLog(entries: readonly LogEntry[], viewerId: PlayerId | null): Log
  * is reduced to counts. The deck order and the RNG state never leave the
  * server, so a client cannot see what it is about to draw.
  */
-export function viewFor(state: GameState, viewerId: PlayerId | null): PlayerView {
-  const { players, devDeck, rng, log, ...rest } = state;
+export function viewFor(state: GameState, viewerId: PlayerId | null, options: ViewOptions = {}): PlayerViewWire {
+  const { includeBoard = true, logLimit = DEFAULT_LOG_LIMIT } = options;
+  const { players, devDeck, rng, log, board, ...rest } = state;
   const revealAll = state.phase === 'ended';
   const you = viewerId ? (players.find((p) => p.id === viewerId) ?? null) : null;
   return {
     ...rest,
-    log: redactLog(log, viewerId),
+    ...(includeBoard ? { board } : {}),
+    log: redactLog(log.slice(-logLimit), viewerId),
     you: you
       ? {
           ...you,
@@ -82,5 +97,5 @@ export function viewFor(state: GameState, viewerId: PlayerId | null): PlayerView
 
 /** A spectator view: no private information at all. */
 export function spectatorView(state: GameState): PlayerView {
-  return viewFor(state, null);
+  return viewFor(state, null) as PlayerView;
 }

@@ -289,6 +289,11 @@ wss.on('connection', (socket: WebSocket) => {
           room.sendChat(current.playerId, String(msg.text ?? ''));
           break;
 
+        case 'resync':
+          if (!room) throw new RuleError('no_room', 'You are not in a room.');
+          room.resync(current.playerId);
+          break;
+
         default:
           reply({ t: 'error', message: 'Unknown message.' });
       }

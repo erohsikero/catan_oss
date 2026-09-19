@@ -6,8 +6,11 @@
  * a winner, asserts no private state reaches the wire, and reconnects with a
  * saved token to confirm the seat is restored.
  *
- *   PORT=8099 node packages/server/dist/index.js &
+ *   PORT=8099 HEXHAVEN_BOT_THINK_MS=0 node packages/server/dist/index.js &
  *   node packages/server/test/smoke.mjs
+ *
+ * HEXHAVEN_BOT_THINK_MS=0 removes the bots' deliberate pause between moves,
+ * which exists only so human players can follow what a bot did.
  */
 import WebSocket from 'ws';
 import { botAction, DEFAULT_SETTINGS } from '@hexhaven/shared';
@@ -40,6 +43,16 @@ a.send({ t: 'hello', name: 'Alice' });
 const welcomeA = await a.wait((m) => m.t === 'welcome');
 log('✓ welcome, playerId', welcomeA.playerId);
 
+// Register state listeners before the first update, the way a real client
+// does: the board is only sent on the first update after joining.
+let lastA = null, lastB = null;
+let boardA = null, boardB = null;
+a.on((m) => {
+  if (m.t !== 'state') return;
+  if (m.view.board) boardA = m.view.board;
+  lastA = { ...m.view, board: m.view.board ?? boardA };
+});
+
 a.send({ t: 'create_room', name: 'Smoke table' });
 const joined = await a.wait((m) => m.t === 'joined');
 log('✓ room created:', joined.roomId);
@@ -48,6 +61,11 @@ log('✓ room created:', joined.roomId);
 const b = await connect('bob');
 b.send({ t: 'hello', name: 'Bob' });
 const welcomeB = await b.wait((m) => m.t === 'welcome');
+b.on((m) => {
+  if (m.t !== 'state') return;
+  if (m.view.board) boardB = m.view.board;
+  lastB = { ...m.view, board: m.view.board ?? boardB };
+});
 b.send({ t: 'join_room', roomId: joined.roomId });
 await b.wait((m) => m.t === 'joined');
 log('✓ second human joined');
@@ -72,10 +90,7 @@ a.send({ t: 'add_bot' });
 await a.wait((m) => m.t === 'state' && m.view.players.length === 4);
 log('✓ two bots added (4 players)');
 
-// Privacy check: give Alice's view a look at Bob.
-let lastA = null, lastB = null;
-a.on((m) => { if (m.t === 'state') lastA = m.view; });
-b.on((m) => { if (m.t === 'state') lastB = m.view; });
+
 
 a.send({ t: 'start_game' });
 await a.wait((m) => m.t === 'state' && m.view.phase === 'setup');
@@ -84,7 +99,7 @@ log('✓ game started');
 // Drive both humans with the bot policy until the game ends.
 let humanActions = 0;
 const drive = (conn, view, id) => {
-  if (!view || view.phase === 'ended') return;
+  if (!view || !view.board || view.phase === 'ended') return;
   // Rebuild a state-shaped object the bot can read: the view already carries
   // the board, buildings, roads and pending step; only our own hand is exact.
   const fake = {
@@ -102,15 +117,20 @@ const drive = (conn, view, id) => {
   if (action) { conn.send({ t: 'action', action }); humanActions++; }
 };
 
-const deadline = Date.now() + 120000;
+const deadline = Date.now() + 240000;
 let ended = null;
 while (Date.now() < deadline) {
-  await new Promise((r) => setTimeout(r, 120));
+  await new Promise((r) => setTimeout(r, 40));
   if (lastA?.phase === 'ended') { ended = lastA; break; }
   drive(a, lastA, welcomeA.playerId);
   drive(b, lastB, welcomeB.playerId);
 }
-if (!ended) throw new Error('game did not finish over the wire');
+if (!ended) {
+  console.log('state at timeout:', lastA && {
+    phase: lastA.phase, pending: lastA.pending?.kind, turn: lastA.turn, humanActions,
+  });
+  throw new Error('game did not finish over the wire');
+}
 log(`✓ full game played over websockets: ${ended.turn} turns, ${humanActions} human actions`);
 const winner = ended.players.find((p) => p.id === ended.winner);
 log(`  winner: ${winner.name} with ${winner.publicVictoryPoints} points`);

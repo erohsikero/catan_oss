@@ -61,6 +61,9 @@ export type ClientMessage =
   | { t: 'start_game' }
   | { t: 'action'; action: Action }
   | { t: 'chat'; text: string }
+  /** Ask for a complete state, board included. Used to recover if a client
+   *  somehow finds itself without one. */
+  | { t: 'resync' }
   | { t: 'ping' };
 
 // --- server -> client -------------------------------------------------------
@@ -99,12 +102,22 @@ export type PlayerView = Omit<GameState, 'players' | 'devDeck' | 'rng'> & {
   yourVictoryPoints: number;
 };
 
+/**
+ * A view as it goes over the wire.
+ *
+ * The board is fixed for the life of a game and is a third of a view's bytes,
+ * so it is sent once and omitted from later updates. Clients cache the last
+ * board they were given and splice it back in; `useConnection` does this, so
+ * the rest of the client only ever sees a complete `PlayerView`.
+ */
+export type PlayerViewWire = Omit<PlayerView, 'board'> & { board?: PlayerView['board'] };
+
 export type ServerMessage =
   | { t: 'welcome'; playerId: PlayerId; token: string; name: string }
   | { t: 'rooms'; rooms: RoomSummary[] }
   | { t: 'joined'; roomId: string; settings: GameSettings }
   | { t: 'left' }
-  | { t: 'state'; view: PlayerView; settings: GameSettings }
+  | { t: 'state'; view: PlayerViewWire; settings: GameSettings }
   | { t: 'error'; message: string; code?: string }
   | { t: 'chat'; from: PlayerId; name: string; text: string; at: number }
   | { t: 'pong' };
