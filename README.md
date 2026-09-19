@@ -59,6 +59,13 @@ For development, with hot reload on the client and a watching server:
 npm run dev        # client on :5173, server on :8080
 ```
 
+If a build ever fails with an unresolvable import from `packages/shared/dist`,
+reset the build output and try again:
+
+```bash
+npm run rebuild    # clean, then build
+```
+
 Open the client, choose a name, create a table, and either share the
 four-letter code with friends or fill the empty seats with bots.
 
@@ -112,6 +119,18 @@ packages/
 `shared` is the interesting part, and both other packages depend on it. Since
 the engine has no I/O, the same code validates moves on the server, highlights
 legal placements in the client, and drives the bots in tests.
+
+The server consumes `shared` as compiled JavaScript, because Node has to run
+it. The client instead aliases it to the TypeScript source, so the client
+bundle does not depend on a separate build step having run first, and edits to
+the rules engine appear in the dev server without a rebuild.
+
+Each package writes its incremental TypeScript cache *inside* its own output
+directory. That sounds like a detail and is not: `tsc -b` trusts that cache,
+so a cache left behind beside `tsconfig.json` after the output was deleted
+will convince it there is nothing to emit, and the build then fails much later
+with an unresolvable import. Keeping the two together means deleting the
+output always deletes the cache describing it.
 
 ### Board topology
 

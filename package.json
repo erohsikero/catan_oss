@@ -22,7 +22,9 @@
     "dev:client": "npm run dev -w @hexhaven/client",
     "start": "node packages/server/dist/index.js",
     "test": "npm run test -w @hexhaven/shared",
-    "typecheck": "tsc -b packages/shared packages/server packages/client"
+    "typecheck": "tsc -b packages/shared packages/server packages/client",
+    "clean": "rm -rf packages/*/dist packages/*/dist-types packages/*/tsconfig.tsbuildinfo",
+    "rebuild": "npm run clean && npm run build"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

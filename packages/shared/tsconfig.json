@@ -2,6 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
+    // Keep the incremental cache with the output it describes: a wiped
+    // dist/ must not leave behind a cache claiming the build is current.
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "rootDir": "./src"
   },
   "include": ["src/**/*"]

@@ -2,7 +2,13 @@ node_modules
 **/node_modules
 **/dist
 **/dist-types
+# TypeScript's incremental cache. A stale one makes `tsc -b` skip emitting
+# entirely, producing an image whose client bundle cannot resolve the shared
+# package. `*.tsbuildinfo` alone only matches the context root.
+**/*.tsbuildinfo
 .git
 .github
+docs
 *.log
-*.tsbuildinfo
+.env
+.env.local
