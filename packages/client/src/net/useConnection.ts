@@ -86,7 +86,6 @@ export function useConnection(): Connection {
   const queueRef = useRef<ClientMessage[]>([]);
   const attemptsRef = useRef(0);
   const nameRef = useRef(name);
-  const closedByUs = useRef(false);
   nameRef.current = name;
 
   const send = useCallback((msg: ClientMessage) => {
@@ -169,7 +168,7 @@ export function useConnection(): Connection {
 
       socket.onclose = () => {
         socketRef.current = null;
-        if (disposed || closedByUs.current) return;
+        if (disposed) return;
         setStatus('reconnecting');
         // Back off, but keep trying: a dropped player has two minutes of grace.
         const delay = Math.min(8000, 400 * 2 ** attemptsRef.current);
@@ -182,8 +181,9 @@ export function useConnection(): Connection {
 
     connect();
     return () => {
+      // `disposed` is scoped to this effect run, so React's StrictMode
+      // double-mount cannot latch it and disable reconnects for the session.
       disposed = true;
-      closedByUs.current = true;
       if (retryTimer) window.clearTimeout(retryTimer);
       socketRef.current?.close();
     };

@@ -456,7 +456,7 @@ function advanceSetup(state: GameState): void {
   };
 }
 
-function endTurn(state: GameState): void {
+function endTurn(state: GameState, settings: GameSettings): void {
   const p = currentPlayer(state);
   for (const card of Object.keys(p.pendingDevCards) as DevCard[]) {
     p.devCards[card] += p.pendingDevCards[card];
@@ -469,6 +469,10 @@ function endTurn(state: GameState): void {
   state.turn += 1;
   state.pending = { kind: 'roll' };
   log(state, 'turn', `${currentPlayer(state).name}'s turn.`, currentPlayer(state).id);
+  // An award can change hands during someone else's turn, so a player may
+  // already be at the target when their turn opens. Wins are only declared on
+  // your own turn, which this now is.
+  checkVictory(state, settings, currentPlayer(state));
 }
 
 /** Enters the discard step if anyone is over the hand limit, else moves the robber. */
@@ -916,7 +920,7 @@ export function applyAction(
       if (state.pending.kind !== 'main' && state.pending.kind !== 'build_roads') {
         fail('bad_phase', 'You cannot end your turn yet.');
       }
-      endTurn(state);
+      endTurn(state, settings);
       break;
     }
 

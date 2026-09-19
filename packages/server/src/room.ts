@@ -108,13 +108,18 @@ export class Room {
   }
 
   /**
-   * Drops a player's socket. In the lobby the seat is freed; mid-game it is
-   * held so they can reconnect, and the bot loop covers their turns.
+   * Drops a player's socket.
+   *
+   * In the lobby the seat is freed. Once the game has started the seat is
+   * kept for good, even for a player who never comes back: seat indices are
+   * baked into `currentPlayer` and the setup draft order, so removing someone
+   * mid-game would scramble whose turn it is. A permanently gone player stays
+   * in the game as a disconnected seat and the bot loop plays their turns.
    */
   leave(playerId: PlayerId, permanent: boolean): void {
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player) return;
-    if (this.state.phase === 'lobby' || permanent) {
+    if (this.state.phase === 'lobby') {
       this.state.players = this.state.players.filter((p) => p.id !== playerId);
       this.state.players.forEach((p, i) => (p.seat = i));
       this.members.delete(playerId);
@@ -126,6 +131,9 @@ export class Room {
       player.connected = false;
       const member = this.members.get(playerId);
       if (member) member.online = false;
+      // A permanent departure also releases the socket, so the room can be
+      // reclaimed once no human is left watching.
+      if (permanent) this.members.delete(playerId);
     }
     this.broadcast();
     this.kickBotLoop();

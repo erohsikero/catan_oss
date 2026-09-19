@@ -91,9 +91,11 @@ app.get('/healthz', (_req, res) => {
 app.use(
   express.static(CLIENT_DIR, {
     // Hashed asset filenames can be cached hard; index.html must not be.
+    // Vite emits `name-HASH.ext` with a base64url hash, not hex.
     setHeaders(res, filePath) {
-      if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
-      else if (/\.[0-9a-f]{8,}\./.test(path.basename(filePath))) {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      } else if (/-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$/.test(path.basename(filePath))) {
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
     },

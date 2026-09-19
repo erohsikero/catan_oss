@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { hexToWorld, type Tile } from '@hexhaven/shared';
 import { hexTileGeometry } from './geometry.js';
@@ -54,6 +54,22 @@ export function Tiles({ tiles, onPick }: { tiles: readonly Tile[]; onPick?: (hex
         };
       }),
     [tiles, sideTexture],
+  );
+
+  // Each tile owns cloned textures and its own materials, so a new board
+  // (a rematch, or a layout change in the lobby) must hand them back to the
+  // GPU rather than leaving them resident for the rest of the session.
+  useEffect(
+    () => () => {
+      for (const entry of entries) {
+        for (const map of [entry.material.map, entry.material.normalMap, entry.material.roughnessMap]) {
+          map?.dispose();
+        }
+        entry.material.dispose();
+        entry.sideMaterial.dispose();
+      }
+    },
+    [entries],
   );
 
   return (

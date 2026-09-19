@@ -11,6 +11,7 @@ import {
   legalRoadEdges,
   longestRoadLength,
   makeRng,
+  parseHexId,
   playerById,
   RuleError,
   startGame,
@@ -323,4 +324,35 @@ test('a seeded game is reproducible', () => {
   const b = createGame('x', 99, DEFAULT_SETTINGS);
   assert.deepEqual(a.board.tiles, b.board.tiles);
   assert.deepEqual(a.devDeck, b.devDeck);
+});
+
+test('a win earned on an opponent turn is claimed when your own turn opens', () => {
+  // Awards can change hands while it is someone else's turn, so a player can
+  // arrive at their turn already holding enough points — even if they cannot
+  // afford to do anything that would otherwise trigger the check.
+  const { g, me } = inMainPhase();
+  const other = g.players.find((x) => x.id !== me)!;
+
+  // Four cities (8 points) plus Longest Road (2) puts them on ten.
+  const corners = ['0,-2', '2,-2', '-2,2', '0,2'].map((h) => vertexIdOf(parseHexId(h), 0));
+  for (const v of corners) {
+    g.buildings[v] = { vertex: v, owner: other.id, kind: 'city' };
+    other.cities.push(v);
+    other.piecesLeft.city -= 1;
+  }
+  other.hasLongestRoad = true;
+  g.longestRoadHolder = other.id;
+  assert.equal(totalVictoryPoints(other), 10);
+
+  // Holding ten points is not a win while it is someone else's turn.
+  assert.equal(g.phase, 'play');
+  assert.equal(g.winner, null);
+
+  // Their hand is empty, so nothing they could do would trigger a check.
+  assert.equal(bagTotal(other.resources), 0);
+
+  applyAction(g, DEFAULT_SETTINGS, me, { type: 'end_turn' });
+  assert.equal(g.currentPlayer, other.seat, 'the turn should have passed to them');
+  assert.equal(g.phase, 'ended');
+  assert.equal(g.winner, other.id);
 });

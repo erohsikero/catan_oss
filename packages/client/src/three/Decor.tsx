@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import {
   edgeToWorld,
@@ -43,6 +43,17 @@ export function NumberTokens({ tiles, robber }: { tiles: readonly Tile[]; robber
           }),
         })),
     [tiles],
+  );
+
+  // Every token bakes its own face texture; release them with the board.
+  useEffect(
+    () => () => {
+      for (const token of tokens) {
+        token.faceMaterial.map?.dispose();
+        token.faceMaterial.dispose();
+      }
+    },
+    [tokens],
   );
 
   return (
@@ -116,6 +127,16 @@ export function Harbors({ board }: { board: Board }) {
         };
       }),
     [board],
+  );
+
+  useEffect(
+    () => () => {
+      for (const pier of piers) {
+        pier.signMaterial.map?.dispose();
+        pier.signMaterial.dispose();
+      }
+    },
+    [piers],
   );
 
   return (
