@@ -251,6 +251,9 @@ Configurable per table: target points, island layout, and an optional turn clock
 
 ## Where this is going
 
+`docs/DEPLOYMENT.md` covers the single-engine architecture, the environments
+and pipeline needed to run this for real players, and why the visual target is
+an asset-pipeline problem rather than an engine one.
 `docs/ROADMAP.md` covers the three open questions in detail: closing the
 visual gap with an authored art pipeline, reaching phones without forking the
 client, and turning the engine seam into a platform that can host more than
