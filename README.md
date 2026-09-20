@@ -249,6 +249,13 @@ Configurable per table: target points, island layout, and an optional turn clock
 - **The board explains the rules.** Only legal targets ever light up, so if a
   corner does not glow, you cannot build there.
 
+## Where this is going
+
+`docs/ROADMAP.md` covers the three open questions in detail: closing the
+visual gap with an authored art pipeline, reaching phones without forking the
+client, and turning the engine seam into a platform that can host more than
+one game. `CHANGELOG.md` records what each release actually contains.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
