@@ -87,25 +87,43 @@ export function GameScreen({ conn }: { conn: Connection }) {
    * Guards against a second click landing before the server's reply.
    *
    * Placement markers are large and a click is easy to repeat; without this
-   * the same board state produces two actions and the second is rejected
+   * the same board state produces two actions, and the second is rejected
    * against a step that has already moved on.
    *
-   * The guard is a short time window rather than "one action per state
-   * version", which is what it was first written as. A rejected action does
-   * not advance the version — the server refuses it and changes nothing —
-   * so keying on the version meant a single rejection wedged the board: no
-   * later click could ever be sent, and the game appeared to stop
-   * responding. A window cannot wedge, because it always expires.
+   * Two earlier attempts were both wrong. Allowing one action per state
+   * *version* wedged the board, because a rejected action does not advance
+   * the version — the server refuses it and changes nothing — so a single
+   * rejection blocked every later click. A fixed time window cannot wedge,
+   * but it throttles: a player clicking two different corners quickly loses
+   * the second, legitimate click.
+   *
+   * What actually matters is whether an action is still unanswered. This
+   * blocks only while one is in flight, and the server answering — with a
+   * new state or with a rejection — releases it immediately. The timer is a
+   * backstop for an answer that never arrives at all.
    */
-  const lastPickAt = useRef(0);
-  const PICK_DEBOUNCE_MS = 350;
+  const inFlight = useRef(false);
+  const releaseTimer = useRef<number | undefined>(undefined);
+
+  const release = useCallback(() => {
+    inFlight.current = false;
+    if (releaseTimer.current !== undefined) {
+      window.clearTimeout(releaseTimer.current);
+      releaseTimer.current = undefined;
+    }
+  }, []);
+
+  // Any answer from the server releases the guard.
+  useEffect(release, [release, view?.version, conn.error]);
+  useEffect(() => release, [release]);
 
   const onPick = useCallback(
     (id: string) => {
       if (!view) return;
-      const now = Date.now();
-      if (now - lastPickAt.current < PICK_DEBOUNCE_MS) return;
-      lastPickAt.current = now;
+      if (inFlight.current) return;
+      inFlight.current = true;
+      // If the server never answers, do not leave the board unclickable.
+      releaseTimer.current = window.setTimeout(release, 4000);
       const pending = view.pending;
       if (pending.kind === 'setup') {
         act(
@@ -138,7 +156,7 @@ export function GameScreen({ conn }: { conn: Connection }) {
       }
       setMode(null);
     },
-    [view, act, mode],
+    [view, act, mode, release],
   );
 
   const onPlayDev = useCallback(
