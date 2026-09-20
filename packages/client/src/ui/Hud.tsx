@@ -239,3 +239,89 @@ export function LogPanel({
     </div>
   );
 }
+
+/**
+ * The turn clock.
+ *
+ * A ring rather than a number alone: the proportion left is readable at a
+ * glance from across the table, which is the whole point of a clock that is
+ * meant to keep a game moving rather than to be studied. It warms to amber
+ * and then red as the step runs out, and says plainly when a player has
+ * started eating into their reserve.
+ */
+export function TurnTimer({ view, playerId }: { view: PlayerView; playerId: string | null }) {
+  const clock = view.clock;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!clock) return;
+    // A quarter second is smooth enough for a ring and cheap enough to run
+    // for an entire game.
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [clock]);
+
+  if (!clock) return null;
+
+  const remainingMs = Math.max(0, clock.deadline - now);
+  const seconds = Math.ceil(remainingMs / 1000);
+  const fraction = clock.durationMs > 0 ? Math.min(1, remainingMs / clock.durationMs) : 0;
+
+  const mine = playerId !== null && clock.players.includes(playerId);
+  const waitingFor = clock.players
+    .map((id) => view.players.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+  const owner = waitingFor[0];
+
+  // Everyone in the step shares the deadline; show the lowest reserve.
+  const reserveMs = Math.min(...waitingFor.map((p) => p.reserveMs), Infinity);
+  const reserveSeconds = Number.isFinite(reserveMs) ? Math.floor(reserveMs / 1000) : 0;
+
+  const urgent = remainingMs <= 10_000;
+  const warning = !urgent && remainingMs <= 25_000;
+  const stroke = urgent ? '#e05c57' : warning ? '#e0b060' : '#6fa8d0';
+
+  const R = 17;
+  const circumference = 2 * Math.PI * R;
+
+  const label =
+    clock.players.length > 1
+      ? `${clock.players.length} players discarding`
+      : mine
+        ? 'Your move'
+        : (owner?.name ?? 'Waiting');
+
+  return (
+    <div className={`turn-timer${urgent ? ' urgent' : ''}`} title={`${label}: ${seconds}s left`}>
+      <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden>
+        <circle cx="22" cy="22" r={R} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="4" />
+        <circle
+          cx="22"
+          cy="22"
+          r={R}
+          fill="none"
+          stroke={stroke}
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - fraction)}
+          transform="rotate(-90 22 22)"
+          style={{ transition: 'stroke-dashoffset 250ms linear, stroke 300ms ease' }}
+        />
+      </svg>
+      <span className="timer-seconds" style={{ color: stroke }}>
+        {seconds}
+      </span>
+      <span className="timer-label">
+        <span className="tiny">{label}</span>
+        {reserveSeconds > 0 ? (
+          <span className="faint tiny">+{reserveSeconds}s reserve</span>
+        ) : (
+          <span className="faint tiny" style={{ color: '#e0908a' }}>
+            no reserve left
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}

@@ -1,4 +1,5 @@
 import { desertHex, generateBoard } from './board.js';
+import { clockFor, DEFAULT_CLOCK, resolveClock, sameStep, type ClockSettings } from './clock.js';
 import {
   edgeEndpoints,
   hexVertices,
@@ -62,7 +63,7 @@ function fail(code: string, message: string): never {
 export const DEFAULT_SETTINGS: GameSettings = {
   victoryPoints: VICTORY_POINTS_TO_WIN,
   board: { layout: 'balanced', shuffleHarbors: true },
-  turnSeconds: 0,
+  clock: DEFAULT_CLOCK,
 };
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,7 @@ export function createGame(id: string, seed: number, settings: GameSettings = DE
     longestRoadHolder: null,
     setupOrder: [],
     setupIndex: 0,
+    clock: null,
     rng,
     seed,
     winner: null,
@@ -134,6 +136,7 @@ export function createPlayer(id: PlayerId, name: string, seat: number, color: Pl
     longestRoadLength: 0,
     hasLongestRoad: false,
     hasLargestArmy: false,
+    reserveMs: DEFAULT_CLOCK.reserveSeconds * 1000,
   };
 }
 
@@ -591,6 +594,8 @@ export function applyAction(
   settings: GameSettings,
   playerId: PlayerId,
   action: Action,
+  /** Injected so games stay reproducible in tests and replays. */
+  now: number = Date.now(),
 ): ApplyResult {
   if (state.phase === 'ended') fail('game_over', 'The game is over.');
   const p = playerById(state, playerId);
@@ -903,6 +908,17 @@ export function applyAction(
       bagAdd(p.resources, offer.want, +1);
       state.trades = state.trades.filter((t) => t.id !== offer.id);
       log(state, 'trade', `${p.name} trades with ${partner.name}.`, p.id, { partner: partner.id });
+      // A completed trade changes what you can afford, so the plan you had is
+      // no longer the plan you have. Give the turn some of its time back.
+      if (state.clock) {
+        const grace = resolveClock(settings).tradeGraceSeconds * 1000;
+        state.clock = {
+          ...state.clock,
+          deadline: state.clock.deadline + grace,
+          durationMs: state.clock.durationMs + grace,
+        };
+        log(state, 'trade_grace', `${p.name} gains extra time to use the trade.`, p.id, { grace });
+      }
       break;
     }
 
@@ -930,8 +946,57 @@ export function applyAction(
     }
   }
 
+  refreshClock(state, resolveClock(settings), now);
   state.version += 1;
   return { state, events: state.log.slice(logStart) };
+}
+
+/**
+ * Re-derives the turn clock after an action.
+ *
+ * The deadline is only reset when the step itself changes. Building a road
+ * and then a settlement are both the main phase, so they share one budget —
+ * otherwise every action would silently refill the clock and it would never
+ * expire for an active player.
+ */
+function refreshClock(state: GameState, clock: ClockSettings, now: number): void {
+  const next = clockFor(state, clock, now);
+  if (sameStep(state.clock, next)) return;
+  state.clock = next;
+}
+
+/**
+ * Spends a player's reserve to push the current deadline out.
+ * Returns false when they have none left and the move must be forced.
+ */
+export function extendFromReserve(state: GameState, settings: GameSettings, now: number): boolean {
+  const clock = resolveClock(settings);
+  if (!state.clock || !clock.enabled) return false;
+  const chunkMs = Math.max(1, clock.reserveChunkSeconds) * 1000;
+  let extended = false;
+  for (const id of state.clock.players) {
+    const player = playerById(state, id);
+    if (!player || player.reserveMs <= 0) continue;
+    const spend = Math.min(player.reserveMs, chunkMs);
+    player.reserveMs -= spend;
+    if (!extended) {
+      state.clock = {
+        ...state.clock,
+        deadline: Math.max(state.clock.deadline, now) + spend,
+        durationMs: state.clock.durationMs + spend,
+      };
+      extended = true;
+    }
+  }
+  if (extended) state.version += 1;
+  return extended;
+}
+
+/** Starts the clock for the opening step once the game begins. */
+export function startClock(state: GameState, settings: GameSettings, now: number = Date.now()): void {
+  const clock = resolveClock(settings);
+  for (const p of state.players) p.reserveMs = Math.max(0, clock.reserveSeconds) * 1000;
+  state.clock = clockFor(state, clock, now);
 }
 
 function normaliseBag(bag: Partial<ResourceBag>): Partial<ResourceBag> {
@@ -964,6 +1029,7 @@ export function cloneState(state: GameState): GameState {
     devDeck: [...state.devDeck],
     bank: bagClone(state.bank),
     trades: state.trades.map((t) => ({ ...t, responses: { ...t.responses } })),
+    clock: state.clock ? { ...state.clock, players: [...state.clock.players] } : null,
     log: [...state.log],
     setupOrder: [...state.setupOrder],
     rng: { ...state.rng },

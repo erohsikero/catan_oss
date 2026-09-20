@@ -6,7 +6,7 @@ import { cityTargets, roadTargets, robberTargets, settlementTargets, setupRoadTa
 import type { Connection } from '../net/useConnection.js';
 import { ActionBar, Hand } from './Dock.js';
 import { ErrorBoundary, SceneFallback } from './ErrorBoundary.js';
-import { Dice, LogPanel, PlayerPanels, TurnBanner } from './Hud.js';
+import { Dice, LogPanel, PlayerPanels, TurnBanner, TurnTimer } from './Hud.js';
 import {
   DiscardDialog,
   MonopolyDialog,
@@ -175,6 +175,7 @@ export function GameScreen({ conn }: { conn: Connection }) {
           <PlayerPanels view={view} playerId={playerId} />
           <div className="turn-box">
             <TurnBanner view={view} playerId={playerId} />
+            <TurnTimer view={view} playerId={playerId} />
             <Dice dice={view.dice} />
           </div>
         </div>

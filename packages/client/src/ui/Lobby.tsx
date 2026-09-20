@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { MAX_PLAYERS, MIN_PLAYERS, PLAYER_COLORS, type PlayerColor, type RoomSummary } from '@hexhaven/shared';
+import {
+  DEFAULT_CLOCK,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
+  PLAYER_COLORS,
+  resolveClock,
+  type ClockSettings,
+  type GameSettings,
+  type PlayerColor,
+  type RoomSummary,
+} from '@hexhaven/shared';
 import { PLAYER_PALETTE } from '../three/theme.js';
 import type { Connection } from '../net/useConnection.js';
 
@@ -256,18 +266,7 @@ export function RoomView({ conn }: { conn: Connection }) {
                 <option value="classic">Classic beginner island</option>
               </select>
             </div>
-            <div className="field">
-              <label htmlFor="clock">Turn clock (seconds, 0 for none)</label>
-              <input
-                id="clock"
-                type="number"
-                min={0}
-                max={600}
-                step={15}
-                value={settings.turnSeconds}
-                onChange={(e) => conn.send({ t: 'set_settings', settings: { turnSeconds: Number(e.target.value) } })}
-              />
-            </div>
+            <ClockSettingsFields settings={settings} conn={conn} />
             <button className="btn btn-primary" disabled={!canStart} onClick={() => conn.send({ t: 'start_game' })}>
               {canStart ? 'Start the game' : `Need ${MIN_PLAYERS - seats.length} more`}
             </button>
@@ -278,5 +277,74 @@ export function RoomView({ conn }: { conn: Connection }) {
         </div>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * Turn clock controls.
+ *
+ * The clock is off by one switch, and each step is budgeted separately
+ * because they are not comparable: rolling is a reflex, working out what to
+ * build is not, and being asked to discard is an interruption.
+ */
+function ClockSettingsFields({ settings, conn }: { settings: GameSettings; conn: Connection }) {
+  const clock = resolveClock(settings);
+  const set = (patch: Partial<ClockSettings>) =>
+    conn.send({ t: 'set_settings', settings: { clock: { ...settings.clock, ...patch } } });
+
+  const field = (key: keyof ClockSettings, label: string, hint: string, min: number, max: number) => (
+    <div className="field" key={key}>
+      <label htmlFor={`clock-${key}`}>
+        {label} <span className="faint tiny">{hint}</span>
+      </label>
+      <input
+        id={`clock-${key}`}
+        type="number"
+        min={min}
+        max={max}
+        step={5}
+        disabled={!clock.enabled}
+        value={clock[key] as number}
+        onChange={(e) => set({ [key]: Number(e.target.value) } as Partial<ClockSettings>)}
+      />
+    </div>
+  );
+
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="clock-enabled">Turn clock</label>
+        <div className="row">
+          <input
+            id="clock-enabled"
+            type="checkbox"
+            style={{ width: 'auto' }}
+            checked={clock.enabled}
+            onChange={(e) => set({ enabled: e.target.checked })}
+          />
+          <span className="tiny muted">
+            {clock.enabled
+              ? 'Steps are timed; running out plays a minimal move for you.'
+              : 'No deadlines. A table can stall on a player who walks away.'}
+          </span>
+        </div>
+      </div>
+      {clock.enabled && (
+        <>
+          {field('mainSeconds', 'Your turn', 'seconds to build and trade', 15, 900)}
+          {field('rollSeconds', 'Rolling', 'seconds to roll the dice', 5, 300)}
+          {field('setupSeconds', 'Opening placement', 'seconds per piece', 10, 600)}
+          {field('discardSeconds', 'Discarding', 'after a seven', 10, 300)}
+          {field('robberSeconds', 'Robber', 'move and steal', 10, 300)}
+          {field('tradeGraceSeconds', 'Extra time after a trade', 'a trade changes the plan', 0, 300)}
+          {field('reserveSeconds', 'Personal reserve', 'spent when a step runs out', 0, 1800)}
+          <p className="faint tiny" style={{ marginTop: -4 }}>
+            Defaults are {DEFAULT_CLOCK.mainSeconds}s per turn with a {DEFAULT_CLOCK.reserveSeconds}s reserve, which
+            is roughly what the commercial apps use.
+          </p>
+        </>
+      )}
+    </>
   );
 }

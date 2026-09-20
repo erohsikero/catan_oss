@@ -1,5 +1,6 @@
 import type { EdgeId, HexId, VertexId } from './hex.js';
 import type { BoardOptions } from './board.js';
+import type { ClockSettings } from './clock.js';
 import type { GameState } from './state.js';
 import type { DevCardCounts, PlayerColor, PlayerId, Resource, ResourceBag } from './types.js';
 
@@ -31,8 +32,8 @@ export type ActionType = Action['type'];
 export interface GameSettings {
   victoryPoints: number;
   board: BoardOptions;
-  /** Seconds a player may take per turn; 0 disables the clock. */
-  turnSeconds: number;
+  /** Turn clock. Omitted fields fall back to DEFAULT_CLOCK. */
+  clock: Partial<ClockSettings>;
 }
 
 export interface RoomSummary {
@@ -90,6 +91,8 @@ export interface OpponentView {
   longestRoadLength: number;
   hasLongestRoad: boolean;
   hasLargestArmy: boolean;
+  /** Time reserve left. Public, so everyone can see whose clock is short. */
+  reserveMs: number;
   /** Excludes hidden victory-point cards until the game ends. */
   publicVictoryPoints: number;
 }

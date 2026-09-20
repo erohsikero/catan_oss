@@ -24,6 +24,7 @@ function toOpponentView(p: PlayerState, revealAll: boolean): OpponentView {
     longestRoadLength: p.longestRoadLength,
     hasLongestRoad: p.hasLongestRoad,
     hasLargestArmy: p.hasLargestArmy,
+    reserveMs: p.reserveMs,
     publicVictoryPoints: revealAll ? totalVictoryPoints(p) : publicVictoryPoints(p),
   };
 }

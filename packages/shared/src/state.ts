@@ -1,3 +1,4 @@
+import type { TurnClock } from './clock.js';
 import type { EdgeId, HexId, VertexId } from './hex.js';
 import type { RngState } from './rng.js';
 import type {
@@ -48,6 +49,12 @@ export interface PlayerState {
   longestRoadLength: number;
   hasLongestRoad: boolean;
   hasLargestArmy: boolean;
+
+  /**
+   * Personal time reserve, in milliseconds. Spent automatically to extend a
+   * step whose clock has run out, so one hard decision does not cost a turn.
+   */
+  reserveMs: number;
 }
 
 export type TradeResponse = 'pending' | 'accept' | 'reject';
@@ -124,6 +131,9 @@ export interface GameState {
   /** Setup walks seats forward then backward; this indexes into that order. */
   setupOrder: number[];
   setupIndex: number;
+
+  /** Deadline for the step currently being waited on; null when untimed. */
+  clock: TurnClock | null;
 
   rng: RngState;
   seed: number;

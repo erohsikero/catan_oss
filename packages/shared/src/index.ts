@@ -3,6 +3,7 @@ export * from './types.js';
 export * from './rng.js';
 export * from './board.js';
 export * from './rules.js';
+export * from './clock.js';
 export * from './state.js';
 export * from './longestRoad.js';
 export * from './protocol.js';

@@ -888,3 +888,52 @@ select:focus {
     min-width: 132px;
   }
 }
+
+/* --- turn clock ---------------------------------------------------------- */
+
+.turn-timer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 12px 6px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  position: relative;
+}
+
+.turn-timer.urgent {
+  border-color: rgba(224, 92, 87, 0.65);
+  animation: timer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+  50% {
+    box-shadow: 0 0 0 3px rgba(224, 92, 87, 0.16), var(--shadow);
+  }
+}
+
+.turn-timer svg {
+  display: block;
+  flex: none;
+}
+
+.timer-seconds {
+  position: absolute;
+  left: 7px;
+  width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.timer-label {
+  display: grid;
+  gap: 1px;
+  line-height: 1.25;
+  min-width: 96px;
+}

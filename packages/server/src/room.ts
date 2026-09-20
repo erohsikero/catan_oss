@@ -5,6 +5,10 @@ import {
   botName,
   createGame,
   DEFAULT_SETTINGS,
+  extendFromReserve,
+  forcedAction,
+  resolveClock,
+  startClock,
   MAX_PLAYERS,
   MIN_PLAYERS,
   PLAYER_COLORS,
@@ -13,6 +17,7 @@ import {
   startGame,
   viewFor,
   type Action,
+  type ClockSettings,
   type GameSettings,
   type GameState,
   type PlayerColor,
@@ -42,6 +47,24 @@ export interface Member {
 const BOT_THINK_MS = Math.max(0, Number(process.env.HEXHAVEN_BOT_THINK_MS ?? 650));
 /** A disconnected player keeps their seat this long before bots take over. */
 export const RECONNECT_GRACE_MS = 120_000;
+
+/** Keeps hand-entered clock values inside something playable. */
+function clampClock(clock: Partial<ClockSettings>): Partial<ClockSettings> {
+  const bound = (v: number | undefined, lo: number, hi: number, fallback: number) =>
+    Math.max(lo, Math.min(hi, v ?? fallback));
+  const base = resolveClock({ clock });
+  return {
+    enabled: clock.enabled ?? base.enabled,
+    setupSeconds: bound(clock.setupSeconds, 10, 600, base.setupSeconds),
+    rollSeconds: bound(clock.rollSeconds, 5, 300, base.rollSeconds),
+    mainSeconds: bound(clock.mainSeconds, 15, 900, base.mainSeconds),
+    discardSeconds: bound(clock.discardSeconds, 10, 300, base.discardSeconds),
+    robberSeconds: bound(clock.robberSeconds, 10, 300, base.robberSeconds),
+    tradeGraceSeconds: bound(clock.tradeGraceSeconds, 0, 300, base.tradeGraceSeconds),
+    reserveSeconds: bound(clock.reserveSeconds, 0, 1800, base.reserveSeconds),
+    reserveChunkSeconds: bound(clock.reserveChunkSeconds, 5, 300, base.reserveChunkSeconds),
+  };
+}
 
 export class Room {
   readonly id: string;
@@ -107,6 +130,8 @@ export class Room {
       this.members.set(member.playerId, member);
       this.broadcast();
       this.kickBotLoop();
+      // They are back, so the clock applies to them again.
+      this.armClock();
       return;
     }
     if (this.state.phase !== 'lobby') throw new RuleError('in_progress', 'That game has already started.');
@@ -146,6 +171,7 @@ export class Room {
     }
     this.broadcast();
     this.kickBotLoop();
+    this.armClock();
   }
 
   addBot(): void {
@@ -181,7 +207,7 @@ export class Room {
       ...patch,
       board: { ...this.settings.board, ...(patch.board ?? {}) },
       victoryPoints: Math.max(3, Math.min(20, patch.victoryPoints ?? this.settings.victoryPoints)),
-      turnSeconds: Math.max(0, Math.min(600, patch.turnSeconds ?? this.settings.turnSeconds)),
+      clock: clampClock({ ...this.settings.clock, ...(patch.clock ?? {}) }),
     };
     // Re-roll the island so the lobby previews the layout it will actually play.
     const players = this.state.players;
@@ -197,8 +223,10 @@ export class Room {
       throw new RuleError('not_enough_players', `You need at least ${MIN_PLAYERS} players.`);
     }
     startGame(this.state);
+    startClock(this.state, this.settings);
     this.broadcast();
     this.kickBotLoop();
+    this.armClock();
   }
 
   // --- gameplay -----------------------------------------------------------
@@ -207,7 +235,7 @@ export class Room {
     applyAction(this.state, this.settings, playerId, action);
     this.broadcast();
     this.kickBotLoop();
-    this.armTurnTimer();
+    this.armClock();
   }
 
   /**
@@ -242,6 +270,11 @@ export class Room {
       }
       this.broadcast();
       this.kickBotLoop();
+      // A bot's move usually hands the step to someone else, so the clock
+      // has to be re-armed for whoever is now being waited on. Without this
+      // a human's deadline is scheduled once and then orphaned the moment a
+      // bot takes a turn.
+      this.armClock();
     }, BOT_THINK_MS);
   }
 
@@ -255,28 +288,72 @@ export class Room {
     return null;
   }
 
-  private armTurnTimer(): void {
+  /**
+   * Schedules a wake-up at the current step's deadline.
+   *
+   * One timer covers the whole room: the state carries a single deadline, so
+   * re-arming after each action is enough, and a step that has not changed
+   * keeps the deadline it already had rather than being refilled.
+   */
+  private armClock(): void {
     if (this.turnTimer) clearTimeout(this.turnTimer);
     this.turnTimer = null;
-    if (this.settings.turnSeconds <= 0) return;
-    if (this.state.phase !== 'play') return;
-    const seat = this.state.currentPlayer;
+    if (this.disposed) return;
+
+    const clock = this.state.clock;
+    if (!clock) return;
+    if (this.state.phase !== 'play' && this.state.phase !== 'setup') return;
+    // Bots take their own turns promptly; no need to also race a clock.
+    if (clock.players.every((id) => this.isAutomated(id))) return;
+
+    const delay = Math.max(0, clock.deadline - Date.now());
     this.turnTimer = setTimeout(() => {
       this.turnTimer = null;
-      // Only fire if the same player is still sitting on the same turn.
-      if (this.state.currentPlayer !== seat || this.state.phase !== 'play') return;
-      const player = this.state.players[seat];
-      if (!player) return;
-      const action = botAction(this.state, this.settings, player.id);
-      if (!action) return;
+      this.onClockExpired();
+    }, delay + 50);
+  }
+
+  private isAutomated(playerId: PlayerId): boolean {
+    const player = this.state.players.find((p) => p.id === playerId);
+    return !player || player.isBot || !player.connected;
+  }
+
+  /**
+   * A step ran out of time.
+   *
+   * The player's own reserve is spent first, so a single hard decision costs
+   * time rather than the turn. Only once that is gone does the server play
+   * for them, and then as little as the rules allow.
+   */
+  private onClockExpired(): void {
+    if (this.disposed) return;
+    const clock = this.state.clock;
+    if (!clock) return;
+    // A late timer for a step that has already moved on is simply stale.
+    if (Date.now() < clock.deadline) {
+      this.armClock();
+      return;
+    }
+
+    if (extendFromReserve(this.state, this.settings, Date.now())) {
+      this.broadcast();
+      this.armClock();
+      return;
+    }
+
+    for (const playerId of clock.players) {
+      const action = forcedAction(this.state, playerId, (state, id) => botAction(state, this.settings, id));
+      if (!action) continue;
       try {
-        applyAction(this.state, this.settings, player.id, action);
-        this.broadcast();
-        this.kickBotLoop();
+        applyAction(this.state, this.settings, playerId, action);
       } catch {
-        /* ignore: the clock is a nudge, not an authority */
+        // The step moved under us, or the fallback was not legal after all.
+        // Either way the next broadcast reflects reality.
       }
-    }, this.settings.turnSeconds * 1000);
+    }
+    this.broadcast();
+    this.kickBotLoop();
+    this.armClock();
   }
 
   // --- messaging ----------------------------------------------------------
