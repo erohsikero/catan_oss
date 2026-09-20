@@ -356,3 +356,119 @@ export function harborSignTexture(resource: string | null, ratio: number): THREE
   tex.anisotropy = 8;
   return tex;
 }
+
+/**
+ * A soft circular glow, used to highlight a corner or edge you may build on.
+ *
+ * Drawn white so a single texture can be tinted to any player's colour. The
+ * alpha ramps to a bright rim and fades both inwards and outwards, which
+ * reads as a ring of light lying on the board rather than a flat sticker —
+ * and, unlike a hard-edged disc, it stays legible over any terrain beneath
+ * it without needing an outline of its own.
+ */
+export function highlightTexture(): THREE.CanvasTexture {
+  const key = '__highlight';
+  const hit = cache.get(key);
+  if (hit) return hit.map as THREE.CanvasTexture;
+
+  const size = 256;
+  const { canvas, ctx } = makeCanvas(size);
+  const img = ctx.createImageData(size, size);
+  const centre = size / 2;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Normalised distance from the centre, 1.0 at the circle's edge.
+      const d = Math.hypot(x - centre, y - centre) / centre;
+      let alpha: number;
+      let value: number;
+      if (d > 1) {
+        alpha = 0;
+        value = 0;
+      } else if (d > 0.87) {
+        // A dark outer halo. Tinting multiplies, so near-black pixels stay
+        // dark whatever colour the player is, and that contour is what keeps
+        // the ring readable over pale sand and golden fields as well as over
+        // dark forest. Without it the highlight simply vanishes on bright
+        // terrain.
+        value = 26;
+        alpha = (1 - (d - 0.87) / 0.13) * 0.62;
+      } else if (d > 0.66) {
+        // The bright rim.
+        const t = (d - 0.66) / 0.21;
+        value = 255;
+        alpha = 0.35 + Math.sin(t * Math.PI) * 0.65;
+      } else {
+        // Only a faint wash inside. During opening placement nearly every
+        // corner is legal, so a heavy fill would cover the board in colour
+        // and hide the terrain the player is choosing between; the ring
+        // carries the message on its own.
+        value = 255;
+        alpha = 0.06 + 0.1 * (d / 0.66);
+      }
+      const i = (y * size + x) * 4;
+      img.data[i] = value;
+      img.data[i + 1] = value;
+      img.data[i + 2] = value;
+      img.data[i + 3] = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  cache.set(key, { map: tex, normalMap: tex, roughnessMap: tex });
+  return tex;
+}
+
+/** The same idea stretched along an edge, for road placement. */
+export function edgeHighlightTexture(): THREE.CanvasTexture {
+  const key = '__edgehighlight';
+  const hit = cache.get(key);
+  if (hit) return hit.map as THREE.CanvasTexture;
+
+  const w = 256;
+  const h = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(w, h);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // A rounded capsule: distance to the segment running along the middle.
+      const halfH = h / 2;
+      const cx = Math.min(Math.max(x, halfH), w - halfH);
+      const d = Math.hypot(x - cx, y - halfH) / halfH;
+      let alpha: number;
+      let value: number;
+      if (d > 1) {
+        alpha = 0;
+        value = 0;
+      } else if (d > 0.84) {
+        value = 26;
+        alpha = (1 - (d - 0.84) / 0.16) * 0.62;
+      } else if (d > 0.5) {
+        value = 255;
+        alpha = 0.35 + Math.sin(((d - 0.5) / 0.34) * Math.PI) * 0.65;
+      } else {
+        value = 255;
+        alpha = 0.16;
+      }
+      const i = (y * w + x) * 4;
+      img.data[i] = value;
+      img.data[i + 1] = value;
+      img.data[i + 2] = value;
+      img.data[i + 3] = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  cache.set(key, { map: tex, normalMap: tex, roughnessMap: tex });
+  return tex;
+}

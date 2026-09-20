@@ -130,10 +130,18 @@ export function ActionBar({
   const afford = (cost: Partial<ResourceBag>) => bagCovers(you.resources, cost);
 
   if (mode) {
+    // A city is an upgrade, not a new building, and saying so removes the
+    // commonest confusion: reaching for Settlement to try to grow a town.
+    const instruction =
+      mode === 'city'
+        ? 'Choose one of your settlements to upgrade'
+        : mode === 'settlement'
+          ? 'Choose a highlighted corner'
+          : 'Choose a highlighted edge';
     return (
       <div className="actions">
         <span className="muted tiny" style={{ alignSelf: 'center', padding: '0 6px' }}>
-          Pick a spot on the board
+          {instruction}
         </span>
         <button className="btn btn-sm" onClick={onCancel}>
           Cancel

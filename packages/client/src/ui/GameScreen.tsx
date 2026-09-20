@@ -86,18 +86,26 @@ export function GameScreen({ conn }: { conn: Connection }) {
   /**
    * Guards against a second click landing before the server's reply.
    *
-   * Placement markers are large and a click is easy to repeat. Without this
-   * the same board state produces two actions, and the second is rejected
-   * against a step that has already moved on — which surfaces to the player
-   * as a rules error for something they did correctly.
+   * Placement markers are large and a click is easy to repeat; without this
+   * the same board state produces two actions and the second is rejected
+   * against a step that has already moved on.
+   *
+   * The guard is a short time window rather than "one action per state
+   * version", which is what it was first written as. A rejected action does
+   * not advance the version — the server refuses it and changes nothing —
+   * so keying on the version meant a single rejection wedged the board: no
+   * later click could ever be sent, and the game appeared to stop
+   * responding. A window cannot wedge, because it always expires.
    */
-  const sentForVersion = useRef(-1);
+  const lastPickAt = useRef(0);
+  const PICK_DEBOUNCE_MS = 350;
 
   const onPick = useCallback(
     (id: string) => {
       if (!view) return;
-      if (sentForVersion.current === view.version) return;
-      sentForVersion.current = view.version;
+      const now = Date.now();
+      if (now - lastPickAt.current < PICK_DEBOUNCE_MS) return;
+      lastPickAt.current = now;
       const pending = view.pending;
       if (pending.kind === 'setup') {
         act(
