@@ -72,6 +72,20 @@ export function PlacementTargets({ kind, targets, color, onPick }: Props) {
   );
 }
 
+/**
+ * One placement target.
+ *
+ * The shape matters more than it looks like it should. A city upgrade is
+ * offered on a corner that already holds a settlement, and the marker used
+ * to be a small sphere at that corner — which put it *inside* the house.
+ * It was invisible, and a click aimed at the roof passed through geometry
+ * the sphere did not cover, so upgrading appeared not to work at all.
+ *
+ * So the visible marker is a ring wider than any piece's footprint, with a
+ * pip floating clear above it, and the thing that actually receives the
+ * click is a transparent cylinder enclosing both. Nothing a player can see
+ * is ever the hit target, and no piece can hide it.
+ */
 function Marker({
   kind,
   x,
@@ -98,10 +112,8 @@ function Marker({
   const group = useMemo(() => new THREE.Group(), []);
 
   useFrame((state) => {
-    const pulse = 1 + Math.sin(state.clock.elapsedTime * 3.2) * 0.12;
-    const scale = hovered ? 1.45 : pulse;
-    group.scale.setScalar(scale);
-    group.position.y = (kind === 'hex' ? SURFACE_Y + 0.02 : SURFACE_Y + 0.06) + (hovered ? 0.04 : 0);
+    const pulse = 1 + Math.sin(state.clock.elapsedTime * 3.2) * 0.1;
+    group.scale.setScalar(hovered ? 1.28 : pulse);
   });
 
   const handlers = {
@@ -121,39 +133,56 @@ function Marker({
     },
   };
 
+  const colour = hovered ? light : base;
+
   return (
-    <primitive object={group} position={[x, SURFACE_Y + 0.06, z]} rotation={[0, -angle, 0]}>
+    <primitive object={group} position={[x, SURFACE_Y, z]} rotation={[0, -angle, 0]}>
       {kind === 'vertex' && (
-        <mesh {...handlers}>
-          <sphereGeometry args={[0.1, 20, 14]} />
-          <meshStandardMaterial
-            color={hovered ? light : base}
-            emissive={base}
-            emissiveIntensity={hovered ? 0.9 : 0.45}
-            roughness={0.3}
-            transparent
-            opacity={0.92}
-          />
-        </mesh>
+        <>
+          {/* Wider than any piece standing on this corner. */}
+          <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[0.23, 0.032, 10, 28]} />
+            <meshStandardMaterial
+              color={colour}
+              emissive={base}
+              emissiveIntensity={hovered ? 1.1 : 0.6}
+              roughness={0.3}
+            />
+          </mesh>
+          {/* Floats clear of a settlement, so a city upgrade is always visible. */}
+          <mesh position={[0, 0.52, 0]}>
+            <sphereGeometry args={[0.07, 16, 12]} />
+            <meshStandardMaterial
+              color={colour}
+              emissive={base}
+              emissiveIntensity={hovered ? 1.2 : 0.7}
+              roughness={0.25}
+            />
+          </mesh>
+          <HitTarget radius={0.26} height={0.78} yOffset={0.34} handlers={handlers} />
+        </>
       )}
+
       {kind === 'edge' && (
-        <mesh {...handlers}>
-          <boxGeometry args={[HEX_SIZE * 0.66, 0.05, 0.1]} />
-          <meshStandardMaterial
-            color={hovered ? light : base}
-            emissive={base}
-            emissiveIntensity={hovered ? 0.9 : 0.4}
-            roughness={0.35}
-            transparent
-            opacity={0.9}
-          />
-        </mesh>
+        <>
+          <mesh position={[0, 0.12, 0]}>
+            <boxGeometry args={[HEX_SIZE * 0.6, 0.055, 0.12]} />
+            <meshStandardMaterial
+              color={colour}
+              emissive={base}
+              emissiveIntensity={hovered ? 1.0 : 0.55}
+              roughness={0.3}
+            />
+          </mesh>
+          <HitTarget radius={0.2} height={0.5} yOffset={0.22} handlers={handlers} />
+        </>
       )}
+
       {kind === 'hex' && (
-        <mesh rotation={[-Math.PI / 2, 0, Math.PI / 6]} {...handlers}>
+        <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 6]} {...handlers}>
           <circleGeometry args={[HEX_SIZE * 0.82, 6]} />
           <meshBasicMaterial
-            color={hovered ? light : base}
+            color={colour}
             transparent
             opacity={hovered ? 0.45 : 0.22}
             depthWrite={false}
@@ -161,5 +190,30 @@ function Marker({
         </mesh>
       )}
     </primitive>
+  );
+}
+
+/**
+ * The clickable volume.
+ *
+ * Fully transparent rather than `visible={false}`, because an invisible
+ * object is skipped by the raycaster and would take no clicks at all.
+ */
+function HitTarget({
+  radius,
+  height,
+  yOffset,
+  handlers,
+}: {
+  radius: number;
+  height: number;
+  yOffset: number;
+  handlers: Record<string, unknown>;
+}) {
+  return (
+    <mesh position={[0, yOffset, 0]} {...handlers}>
+      <cylinderGeometry args={[radius, radius, height, 12]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
   );
 }

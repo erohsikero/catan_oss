@@ -24,7 +24,7 @@ import { HEX_SIZE, SURFACE_Y } from './theme.js';
 
 const INRADIUS = HEX_SIZE * (Math.sqrt(3) / 2);
 /** Props stay out of this radius so they never crowd the number token. */
-const TOKEN_CLEARANCE = HEX_SIZE * 0.42;
+const TOKEN_CLEARANCE = HEX_SIZE * 0.4;
 /** And inside this one, so nothing pokes over the tile's bevelled rim. */
 const EDGE_MARGIN = HEX_SIZE * 0.88;
 
@@ -60,7 +60,7 @@ function scatter(seed: number, count: number, minScale: number, maxScale: number
     if (!insideHex(x, z, EDGE_MARGIN)) continue;
     if (Math.hypot(x, z) < TOKEN_CLEARANCE) continue;
     // Keep props from intersecting each other.
-    if (out.some((p) => Math.hypot(p.x - x, p.z - z) < 0.15)) continue;
+    if (out.some((p) => Math.hypot(p.x - x, p.z - z) < 0.12)) continue;
     out.push({
       x,
       z,
@@ -76,30 +76,32 @@ type PropKind = 'conifer' | 'broadleaf' | 'rock' | 'wheat' | 'sheep' | 'cactus' 
 
 /** What grows on each terrain, and how densely. */
 const TERRAIN_PROPS: Record<Exclude<Terrain, 'sea'>, Array<{ kind: PropKind; count: number; min: number; max: number }>> = {
-  // Scales are relative to a hex of circumradius 1. A tree around 0.35 high
-  // reads as a forest from the play camera; much larger and the canopy hides
-  // the number token and the tile beneath it.
+  // On a real board the terrain is a printed tile and only the playing pieces
+  // are objects. Scenery here is deliberately kept low and small — enough
+  // relief to tell a forest from a pasture at a glance, never tall enough to
+  // compete with a settlement for attention. Previously the trees stood
+  // higher than the houses, which is exactly backwards.
   forest: [
-    { kind: 'conifer', count: 9, min: 0.26, max: 0.4 },
-    { kind: 'broadleaf', count: 5, min: 0.24, max: 0.34 },
+    { kind: 'conifer', count: 10, min: 0.15, max: 0.22 },
+    { kind: 'broadleaf', count: 6, min: 0.13, max: 0.19 },
   ],
   mountains: [
-    { kind: 'rock', count: 12, min: 0.35, max: 0.95 },
+    { kind: 'rock', count: 13, min: 0.22, max: 0.5 },
   ],
   fields: [
-    { kind: 'wheat', count: 13, min: 0.34, max: 0.5 },
+    { kind: 'wheat', count: 14, min: 0.2, max: 0.29 },
   ],
   pasture: [
-    { kind: 'sheep', count: 5, min: 0.5, max: 0.66 },
-    { kind: 'broadleaf', count: 2, min: 0.2, max: 0.3 },
+    { kind: 'sheep', count: 6, min: 0.3, max: 0.38 },
+    { kind: 'broadleaf', count: 2, min: 0.12, max: 0.17 },
   ],
   hills: [
-    { kind: 'bricks', count: 6, min: 0.4, max: 0.62 },
-    { kind: 'rock', count: 4, min: 0.28, max: 0.5 },
+    { kind: 'bricks', count: 7, min: 0.26, max: 0.38 },
+    { kind: 'rock', count: 5, min: 0.18, max: 0.3 },
   ],
   desert: [
-    { kind: 'cactus', count: 3, min: 0.35, max: 0.52 },
-    { kind: 'rock', count: 5, min: 0.25, max: 0.45 },
+    { kind: 'cactus', count: 3, min: 0.2, max: 0.3 },
+    { kind: 'rock', count: 6, min: 0.16, max: 0.28 },
   ],
 };
 

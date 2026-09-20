@@ -511,13 +511,21 @@ select:focus {
   }
 }
 
+/* Each cell of the 3x3 face centres whatever pip it holds. */
+.die > span {
+  display: grid;
+  place-items: center;
+}
+
 .pip {
+  /* A span is inline by default, which silently discards width and height —
+     the pips were rendering at zero size and the dice came out blank. */
+  display: block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #2c2418;
-  align-self: center;
-  justify-self: center;
+  box-shadow: inset 0 -1px 1px rgba(255, 255, 255, 0.25);
 }
 
 /* --- hand and action bar ------------------------------------------------ */
@@ -782,6 +790,7 @@ select:focus {
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
+  animation: toast-in 180ms ease-out;
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   background: rgba(150, 40, 36, 0.94);
@@ -977,4 +986,12 @@ select:focus {
 .quality-name {
   font-weight: 650;
   font-size: 13px;
+}
+
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px);
+  }
 }

@@ -174,7 +174,10 @@ export function useConnection(): Connection {
             setChat((prev) => [...prev.slice(-80), msg]);
             break;
           case 'error':
-            setError(msg.message);
+            // Clearing first guarantees a state change, so a repeat of the
+            // same message restarts the dismiss timer and re-animates.
+            setError(null);
+            setTimeout(() => setError(msg.message), 0);
             break;
           case 'pong':
             break;
@@ -203,6 +206,19 @@ export function useConnection(): Connection {
       socketRef.current?.close();
     };
   }, []);
+
+  /**
+   * Clear an error after a few seconds.
+   *
+   * Rule rejections are routine — a stale click, a step that moved on — and
+   * a banner that sits on screen until dismissed turns a transient message
+   * into something that looks like a broken game.
+   */
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   // A heartbeat keeps intermediaries from culling an idle game.
   useEffect(() => {

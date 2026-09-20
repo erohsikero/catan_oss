@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Action, DevCard, PlayerColor, Resource, ResourceBag } from '@hexhaven/shared';
 import { Scene } from '../three/Scene.js';
 import type { PickKind } from '../three/Interaction.js';
@@ -83,9 +83,21 @@ export function GameScreen({ conn }: { conn: Connection }) {
     }
   }, [view, playerId, isMyTurn, mode]);
 
+  /**
+   * Guards against a second click landing before the server's reply.
+   *
+   * Placement markers are large and a click is easy to repeat. Without this
+   * the same board state produces two actions, and the second is rejected
+   * against a step that has already moved on — which surfaces to the player
+   * as a rules error for something they did correctly.
+   */
+  const sentForVersion = useRef(-1);
+
   const onPick = useCallback(
     (id: string) => {
       if (!view) return;
+      if (sentForVersion.current === view.version) return;
+      sentForVersion.current = view.version;
       const pending = view.pending;
       if (pending.kind === 'setup') {
         act(

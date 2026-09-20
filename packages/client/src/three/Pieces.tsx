@@ -25,19 +25,60 @@ import { HEX_SIZE, PLAYER_PALETTE, SURFACE_Y } from './theme.js';
 
 const materialCache = new Map<string, THREE.MeshStandardMaterial>();
 
+/**
+ * Pieces are painted plastic, terrain is not.
+ *
+ * The strongest cue separating a piece from the board is not its colour but
+ * its *surface*: a low roughness and a bright environment response give the
+ * pieces a sheen that no patch of grass or rock ever has, so the eye picks
+ * them out even where the colours are close.
+ */
 function pieceMaterial(color: PlayerColor, variant: 'base' | 'dark' | 'light' = 'base'): THREE.MeshStandardMaterial {
   const key = `${color}:${variant}`;
   const hit = materialCache.get(key);
   if (hit) return hit;
   const material = new THREE.MeshStandardMaterial({
     color: PLAYER_PALETTE[color][variant],
-    roughness: 0.42,
-    metalness: 0.12,
-    // A hint of sheen so pieces catch the sun against matte terrain.
-    envMapIntensity: 1.1,
+    roughness: 0.28,
+    metalness: 0.06,
+    envMapIntensity: 1.5,
   });
   materialCache.set(key, material);
   return material;
+}
+
+/**
+ * Outline shell.
+ *
+ * An inverted hull — the same geometry grown slightly and drawn back-faces
+ * only — puts a dark contour around every piece. It is what board-game apps
+ * use to keep pieces legible against busy terrain, it costs one extra draw
+ * per piece, and unlike an edge-detection pass it works on every quality
+ * tier including the one with no post-processing at all.
+ */
+const OUTLINE_MATERIAL = new THREE.MeshBasicMaterial({
+  color: '#140f0a',
+  side: THREE.BackSide,
+  transparent: true,
+  opacity: 0.92,
+});
+
+function Outlined({
+  geometry,
+  material,
+  grow,
+  ...rest
+}: {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material;
+  grow: number;
+} & JSX.IntrinsicElements['group']) {
+  return (
+    <group {...rest}>
+      <mesh geometry={geometry} material={OUTLINE_MATERIAL} scale={grow} renderOrder={-1} />
+      <mesh geometry={geometry} material={material} castShadow receiveShadow />
+    </group>
+  );
 }
 
 /** Angle that turns a piece to face outward from the middle of the island. */
@@ -52,8 +93,8 @@ export function Buildings({
   buildings: Record<string, Building>;
   colorOf: (playerId: string) => PlayerColor;
 }) {
-  const settlement = useMemo(() => settlementGeometry(0.2), []);
-  const city = useMemo(() => cityGeometry(0.2), []);
+  const settlement = useMemo(() => settlementGeometry(0.3), []);
+  const city = useMemo(() => cityGeometry(0.27), []);
 
   const items = useMemo(
     () =>
@@ -67,14 +108,13 @@ export function Buildings({
   return (
     <group>
       {items.map((item) => (
-        <mesh
+        <Outlined
           key={item.vertex}
           geometry={item.kind === 'city' ? city : settlement}
           material={pieceMaterial(item.color)}
+          grow={1.055}
           position={[item.x, SURFACE_Y, item.z]}
           rotation={[0, item.facing, 0]}
-          castShadow
-          receiveShadow
         />
       ))}
     </group>
@@ -89,7 +129,7 @@ export function Roads({
   colorOf: (playerId: string) => PlayerColor;
 }) {
   // Slightly shorter than the edge so neighbouring roads read as separate.
-  const geometry = useMemo(() => roadGeometry(HEX_SIZE * 0.82, 0.1, 0.075), []);
+  const geometry = useMemo(() => roadGeometry(HEX_SIZE * 0.78, 0.15, 0.115), []);
 
   const items = useMemo(
     () =>
@@ -103,14 +143,13 @@ export function Roads({
   return (
     <group>
       {items.map((item) => (
-        <mesh
+        <Outlined
           key={item.edge}
           geometry={geometry}
           material={pieceMaterial(item.color)}
-          position={[item.x, SURFACE_Y + 0.035, item.z]}
+          grow={1.09}
+          position={[item.x, SURFACE_Y + 0.055, item.z]}
           rotation={[0, -item.angle, 0]}
-          castShadow
-          receiveShadow
         />
       ))}
     </group>
@@ -119,7 +158,7 @@ export function Roads({
 
 /** The robber, drifting gently so the eye is drawn to the blocked tile. */
 export function Robber({ hex }: { hex: string }) {
-  const geometry = useMemo(() => robberGeometry(0.26), []);
+  const geometry = useMemo(() => robberGeometry(0.34), []);
   const material = useMemo(
     () => new THREE.MeshStandardMaterial({ color: '#2b2b33', roughness: 0.55, metalness: 0.2 }),
     [],
@@ -140,7 +179,7 @@ export function Robber({ hex }: { hex: string }) {
 
   return (
     <group ref={group} position={[target.x, target.y, target.z]}>
-      <mesh geometry={geometry} material={material} castShadow receiveShadow />
+      <Outlined geometry={geometry} material={material} grow={1.05} />
     </group>
   );
 }
