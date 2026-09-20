@@ -14,6 +14,10 @@ import { BoardContactShadows } from './Shadows.js';
 import { createEnvironment } from './environment.js';
 import { HEX_SIZE } from './theme.js';
 import type { Quality } from './quality.js';
+// Shared with the browser tests, which project board coordinates to screen
+// pixels rather than hunting for targets by clicking around. Keeping one
+// definition means a camera change cannot silently break them.
+import cameraConfig from './camera.json';
 
 /**
  * The post-processing chain is the heaviest dependency in the client, and a
@@ -114,7 +118,12 @@ export function Scene(props: SceneProps) {
     <Canvas
       shadows
       dpr={[1, 2]}
-      camera={{ position: [0, 8.6, 9.2], fov: 42, near: 0.5, far: 120 }}
+      camera={{
+        position: cameraConfig.position as [number, number, number],
+        fov: cameraConfig.fov,
+        near: cameraConfig.near,
+        far: cameraConfig.far,
+      }}
       gl={{
         // Anti-aliasing is handled by SMAA on the top tier; keeping the
         // built-in pass as well would cost a second resolve for nothing.
@@ -140,12 +149,12 @@ export function Scene(props: SceneProps) {
         dampingFactor={0.08}
         rotateSpeed={0.6}
         panSpeed={0.6}
-        minDistance={5}
-        maxDistance={20}
+        minDistance={cameraConfig.minDistance}
+        maxDistance={cameraConfig.maxDistance}
         // Stop the camera dropping under the sea or looking straight down.
-        minPolarAngle={0.18}
-        maxPolarAngle={1.32}
-        target={[0, 0, 0]}
+        minPolarAngle={cameraConfig.minPolarAngle}
+        maxPolarAngle={cameraConfig.maxPolarAngle}
+        target={cameraConfig.target as [number, number, number]}
       />
     </Canvas>
   );

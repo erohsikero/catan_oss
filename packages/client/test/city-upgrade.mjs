@@ -1,175 +1,174 @@
 /**
  * Browser check for upgrading a settlement to a city.
  *
- * This is here because the bug it covers was invisible to every other kind
- * of test: the engine accepted `build_city` over the wire perfectly well,
- * and only a real click revealed that the marker offering the upgrade sat
- * *inside* the settlement model, where a click aimed at the house missed it.
+ * This exists because the bug it covers was invisible to every other kind of
+ * test: the engine accepted `build_city` over the wire perfectly well, and
+ * only a real click revealed that the marker offering the upgrade sat inside
+ * the settlement model, where a click aimed at the house missed it entirely.
  *
- * It plays the opening by clicking the board, takes turns until a city is
- * affordable, then upgrades by clicking - the exact flow a player follows.
+ * It drives the game from the state the client actually received rather than
+ * by reading the DOM, and clicks computed pixels rather than hunting for
+ * targets. It also trades at the bank when it has to: a randomly chosen
+ * opening may never produce ore, and a test that passes or fails on dice
+ * rolls is worse than no test.
  *
  *   PORT=8077 HEXHAVEN_BOT_THINK_MS=0 node packages/server/dist/index.js &
  *   BASE=http://127.0.0.1:8077 CHROME_PATH=/path/to/chrome \
  *     node packages/client/test/city-upgrade.mjs
  */
+import {
+  bagCovers,
+  BUILD_COSTS,
+  legalRoadEdges,
+  legalSettlementVertices,
+} from '@hexhaven/shared';
+import {
+  clearSent,
+  clickableTarget,
+  clickUntilAction,
+  launch,
+  sentActions,
+  view,
+  waitForView,
+} from './harness.mjs';
+import { openTable } from './table.mjs';
+
 const BASE = process.env.BASE ?? 'http://127.0.0.1:8077';
+const started = Date.now();
+const { browser, page } = await launch({ base: BASE });
+const me = await openTable(page, { name: 'city upgrade', bots: 3, clock: false });
+const mine = JSON.stringify(me);
 
-// Plays through the real UI until a city is affordable, then upgrades by
-// clicking the marker on the board - the exact flow that was failing.
-import pw from 'playwright-core';
-const { chromium } = pw;
-import fs from 'node:fs';
-const OUT = process.env.OUT; fs.mkdirSync(OUT, { recursive: true });
+// Parenthesised so it can be composed into larger predicates: without the
+// wrapping parens `${ourTurn}(v)` splices an arrow function into the middle
+// of an expression and the whole predicate fails to parse.
+const ourTurn = `((v) => v.players[v.currentPlayer].id === ${mine})`;
+const button = (label) => page.locator(`.actions button:has-text("${label}")`);
 
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH,
-  args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage'],
-});
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
-const errors = [];
-page.on('pageerror', (e) => errors.push(e.message));
-await page.goto(BASE, { waitUntil: 'networkidle' });
+// --- opening placement -----------------------------------------------------
+for (let round = 0; round < 2; round++) {
+  await waitForView(page, `(v) => v.pending.kind === 'setup' && v.pending.step === 'settlement' && ${ourTurn}(v)`);
+  let v = await view(page);
+  const corners = legalSettlementVertices(v, me, true);
+  // Prefer a corner touching ore or grain, so the game reaches a city
+  // without depending on luck or on a long run of bank trades.
+  const score = (c) =>
+    (v.board.vertexHexes[c] ?? []).reduce((n, h) => {
+      const t = v.board.tileById[h];
+      return n + (t.terrain === 'mountains' ? 3 : t.terrain === 'fields' ? 2 : 0) * Math.max(1, t.pips);
+    }, 0);
+  // Highest scoring corner that is also clear of the HUD, since the camera
+  // never moves and an unreachable settlement could not be upgraded later.
+  const ranked = [...corners].sort((a, b) => score(b) - score(a));
+  const chosen = await clickableTarget(page, 'vertex', ranked);
+  if (!chosen) throw new Error('no legal corner is clear of the HUD');
+  if (!(await clickUntilAction(page, chosen.at))) throw new Error('settlement click never registered');
 
-await page.fill('#room-name', 'city ui');
-await page.click('text=Create table');
-await page.waitForSelector('text=At the table');
-// No clock: this test is slow on a software renderer and must not be
-// raced by the server playing for us.
-// The checkbox is controlled by server state, so the click and the
-// re-render are a round trip apart; wait for the state rather than assert it.
-await page.click('#clock-enabled');
-for (let i = 0; i < 40; i++) {
-  if (!(await page.locator('#clock-enabled').isChecked())) break;
-  await page.waitForTimeout(150);
+  await waitForView(page, `(v) => v.pending.kind === 'setup' && v.pending.step === 'road' && ${ourTurn}(v)`);
+  v = await view(page);
+  const road = await clickableTarget(page, 'edge', legalRoadEdges(v, me, v.pending.lastVertex));
+  if (!road) throw new Error('no legal road is clear of the HUD');
+  if (!(await clickUntilAction(page, road.at))) throw new Error('road click never registered');
 }
-if (await page.locator('#clock-enabled').isChecked()) throw new Error('could not disable the clock');
-console.log('✓ clock disabled for this test');
-for (let i = 0; i < 3; i++) { await page.click('text=Add a bot'); await page.waitForTimeout(150); }
-await page.click('text=Start the game');
-await page.waitForTimeout(1500);
+await waitForView(page, `(v) => v.phase === 'play'`);
+console.log(`✓ opening placed by clicking, ${((Date.now() - started) / 1000).toFixed(1)}s in`);
 
-const banner = () => page.evaluate(() => document.querySelector('.turn-banner')?.textContent ?? '');
-const toast = () => page.evaluate(() => document.querySelector('.toast')?.textContent ?? '');
-const btn = (label) => page.locator(`.actions button:has-text("${label}")`);
-
-// Clicks around the board until `done` reports success.
-async function sweep(done, label) {
-  for (let ring = 0; ring < 13; ring++) {
-    for (let a = 0; a < 20; a++) {
-      const ang = (a / 20) * Math.PI * 2;
-      const rad = 30 + ring * 27;
-      const x = Math.round(720 + Math.cos(ang) * rad * 1.35);
-      const y = Math.round(430 + Math.sin(ang) * rad * 0.8);
-      if (x < 60 || x > 1380 || y < 90 || y > 760) continue;
-      await page.mouse.click(x, y);
-      await page.waitForTimeout(70);
-      if (await done()) { console.log(`  ${label}: hit at (${x}, ${y})`); return true; }
+// --- helpers ---------------------------------------------------------------
+async function clearDialogs(v) {
+  if (v.pending.kind === 'discard' && v.pending.owed[me] !== undefined) {
+    const submit = page.locator('.modal button:has-text("Discard")');
+    for (let i = 0; i < 16 && (await submit.isDisabled()); i++) {
+      const plus = page.locator('.modal .counter button:has-text("+"):not([disabled])').first();
+      if (!(await plus.count())) break;
+      await plus.click();
     }
+    if (!(await submit.isDisabled())) await submit.click();
+    return true;
+  }
+  if (v.pending.kind === 'move_robber' && v.players[v.currentPlayer].id === me) {
+    const tiles = v.board.tiles.filter((t) => t.id !== v.robber).map((t) => t.id);
+    const hex = await clickableTarget(page, 'hex', tiles);
+    if (hex) await clickUntilAction(page, hex.at);
+    return true;
+  }
+  if (v.pending.kind === 'steal' && v.players[v.currentPlayer].id === me) {
+    await page.locator('.modal .score-row').first().click();
+    return true;
   }
   return false;
 }
 
-/**
- * Converts whatever is spare into the grain and ore a city needs.
- * Returns true when a trade was actually made.
- */
+/** Swaps spare resources for the grain and ore a city needs. */
 async function tradeTowardsCity() {
-  const trade = btn('Trade');
+  const trade = button('Trade');
   if (!(await trade.count()) || (await trade.isDisabled())) return false;
   await trade.click();
-  await page.waitForTimeout(250);
   const modal = page.locator('.modal:has-text("Trade")');
-  if (!(await modal.count())) return false;
-
-  let done = false;
+  await modal.waitFor({ timeout: 3000 }).catch(() => {});
+  let traded = false;
   for (const want of ['Ore', 'Grain']) {
     const give = modal.locator('.pick[aria-label^="Give"]:not([disabled])').first();
     const receive = modal.locator(`.pick[aria-label="Receive ${want}"]:not([disabled])`);
     if (!(await give.count()) || !(await receive.count())) continue;
-    // Never trade away the resource we are trying to accumulate.
-    const giveLabel = await give.getAttribute('aria-label');
-    if (giveLabel && giveLabel.includes(want)) continue;
+    const label = await give.getAttribute('aria-label');
+    if (label?.includes(want)) continue; // never trade away what we are collecting
     await give.click();
-    await page.waitForTimeout(120);
     if (await receive.isDisabled()) continue;
     await receive.click();
-    await page.waitForTimeout(120);
     const confirm = modal.locator('button:has-text("Trade")').last();
     if (!(await confirm.isDisabled())) {
       await confirm.click();
-      await page.waitForTimeout(300);
-      done = true;
+      traded = true;
       break;
     }
   }
   const close = modal.locator('button:has-text("Close")');
-  if (await close.count()) { await close.click(); await page.waitForTimeout(150); }
-  return done;
+  if (await close.count()) await close.click();
+  return traded;
 }
 
-// --- opening placement -------------------------------------------------
-for (let round = 0; round < 2; round++) {
-  for (let i = 0; i < 80; i++) { if ((await banner()).includes('You: place a settlement')) break; await page.waitForTimeout(300); }
-  if (!(await banner()).includes('You: place a settlement')) break;
-  await sweep(async () => (await banner()).includes('place a road'), `settlement ${round + 1}`);
-  await sweep(async () => !(await banner()).includes('place a road'), `road ${round + 1}`);
-}
-console.log('✓ opening placement done via clicks');
+// --- play until a city is affordable, then upgrade by clicking -------------
+let upgraded = false;
+let turns = 0;
+for (; turns < 160 && !upgraded; turns++) {
+  await waitForView(page, `(v) => ${ourTurn}(v) || v.pending.kind === 'discard'`);
+  let v = await view(page);
+  if (await clearDialogs(v)) continue;
+  if (v.players[v.currentPlayer].id !== me) continue;
 
-// --- play turns until a city is affordable ------------------------------
-let cityEnabled = false;
-for (let turn = 0; turn < 200 && !cityEnabled; turn++) {
-  if (await btn('Roll the dice').count()) { await btn('Roll the dice').click(); await page.waitForTimeout(400); }
-  // A seven can interrupt with a discard dialog; take the default.
-  if (await page.locator('.modal:has-text("Discard half")').count()) {
-    const submit = page.locator('.modal button:has-text("Discard")');
-    for (let i = 0; i < 15 && (await submit.isDisabled()); i++) {
-      // Only some counters can be raised; pick whichever is still enabled.
-      const plus = page.locator('.modal .counter button:has-text("+"):not([disabled])').first();
-      if (!(await plus.count())) break;
-      await plus.click();
-      await page.waitForTimeout(60);
-    }
-    if (!(await submit.isDisabled())) { await submit.click(); await page.waitForTimeout(400); }
+  if (v.pending.kind === 'roll') {
+    await button('Roll the dice').click();
+    await waitForView(page, `(v) => v.pending.kind !== 'roll' || v.players[v.currentPlayer].id !== ${mine}`);
+    v = await view(page);
+    if (await clearDialogs(v)) continue;
   }
-  if ((await banner()).includes('Move the robber')) await sweep(async () => !(await banner()).includes('Move the robber'), 'robber');
-  if (await page.locator('.modal:has-text("Choose someone to rob")').count()) {
-    await page.locator('.modal .score-row').first().click(); await page.waitForTimeout(300);
+  if (v.players[v.currentPlayer].id !== me || v.pending.kind !== 'main') continue;
+
+  const canAfford = bagCovers(v.you.resources, BUILD_COSTS.city);
+  if (canAfford && v.you.settlements.length > 0 && v.you.piecesLeft.city > 0) {
+    await clearSent(page);
+    await button('City').click();
+    const reachable = await clickableTarget(page, 'vertex', v.you.settlements);
+    const target = reachable?.id ?? v.you.settlements[0];
+    if (reachable) await clickUntilAction(page, reachable.at);
+    await page
+      .waitForFunction(() => window.__view?.you?.cities?.length > 0, null, { timeout: 5000, polling: 80 })
+      .catch(() => {});
+    const after = await view(page);
+    const sent = await sentActions(page);
+    upgraded = after.you.cities.includes(target);
+    console.log(`city attempt sent ${JSON.stringify(sent.map((a) => a.type))}; cities now ${after.you.cities.length}`);
+    if (upgraded) break;
+  } else {
+    await tradeTowardsCity();
   }
-  cityEnabled = (await btn('City').count()) > 0 && !(await btn('City').isDisabled());
-  if (cityEnabled) break;
-  // A city needs grain and ore, and a randomly chosen opening may simply
-  // never produce either. Trading at the bank is what a player would do,
-  // and it makes this test depend on the flow under test rather than on
-  // where the sweep happened to place the first settlement.
-  await tradeTowardsCity();
-  if (await btn('End turn').count()) {
-    const b = btn('End turn');
-    if (!(await b.isDisabled())) { await b.click(); await page.waitForTimeout(250); }
-  }
-  for (let i = 0; i < 60; i++) {
-    if (await btn('Roll the dice').count()) break;
-    await page.waitForTimeout(250);
-  }
+
+  const end = button('End turn');
+  if ((await end.count()) && !(await end.isDisabled())) await end.click();
+  await waitForView(page, `(v) => !(${ourTurn}(v) && v.pending.kind === 'main')`).catch(() => {});
 }
 
-if (!cityEnabled) { console.log('✗ never reached an affordable city'); await browser.close(); process.exit(1); }
-console.log('✓ City button became enabled');
-
-const citiesBefore = await page.evaluate(() => {
-  const el = [...document.querySelectorAll('.player-card')].find((c) => c.textContent.includes('(you)'));
-  return el ? el.textContent : '';
-});
-await btn('City').click();
-await page.waitForTimeout(300);
-console.log('  action bar now:', await page.evaluate(() => document.querySelector('.actions')?.textContent));
-
-const upgraded = await sweep(async () => (await page.evaluate(() => document.querySelector('.log-body')?.textContent ?? '')).includes('upgrades to a city'), 'city');
-await page.screenshot({ path: `${OUT}/after.png` });
-const t = await toast();
-console.log(upgraded ? '✓ CITY UPGRADED by clicking the board' : `✗ city upgrade failed${t ? ' — toast: ' + t : ''}`);
-console.log('before:', citiesBefore.replace(/\s+/g, ' '));
-if (errors.length) console.log('page errors:', errors.slice(0, 3).join(' | '));
+console.log(upgraded ? '✓ CITY UPGRADED by clicking the board' : '✗ never upgraded');
+console.log(`${turns} turns, ${((Date.now() - started) / 1000).toFixed(1)}s total`);
 await browser.close();
 process.exit(upgraded ? 0 : 1);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Action, DevCard, PlayerColor, Resource, ResourceBag } from '@hexhaven/shared';
+import type { Action, DevCard, PlayerColor, PlayerView, Resource, ResourceBag } from '@hexhaven/shared';
 import { Scene } from '../three/Scene.js';
 import type { PickKind } from '../three/Interaction.js';
 import { loadQuality, saveQuality, type Quality } from '../three/quality.js';
@@ -20,6 +20,39 @@ import {
 
 /** What the player is currently being asked to click on the board. */
 type BuildMode = 'road' | 'settlement' | 'city' | null;
+
+/**
+ * Is this target still a legal thing to click, given the state right now?
+ *
+ * Deliberately recomputed rather than compared against the target list the
+ * marker was drawn from: that list belongs to the render the click came
+ * from, which is exactly the thing that may be out of date.
+ */
+function isStillValid(view: PlayerView, playerId: string, mode: BuildMode, id: string): boolean {
+  const pending = view.pending;
+  const isMine = view.players[view.currentPlayer]?.id === playerId;
+
+  if (pending.kind === 'setup') {
+    if (!isMine) return false;
+    return pending.step === 'settlement'
+      ? settlementTargets(view, playerId, true).includes(id)
+      : Boolean(pending.lastVertex) && setupRoadTargets(view, pending.lastVertex!).includes(id);
+  }
+  if (pending.kind === 'move_robber') return isMine && robberTargets(view).includes(id);
+  if (pending.kind === 'build_roads') return isMine && roadTargets(view, playerId).includes(id);
+  if (pending.kind !== 'main' || !isMine) return false;
+
+  switch (mode) {
+    case 'road':
+      return roadTargets(view, playerId).includes(id);
+    case 'settlement':
+      return settlementTargets(view, playerId, false).includes(id);
+    case 'city':
+      return cityTargets(view).includes(id);
+    default:
+      return false;
+  }
+}
 
 export function GameScreen({ conn }: { conn: Connection }) {
   const { view, playerId, act } = conn;
@@ -105,6 +138,18 @@ export function GameScreen({ conn }: { conn: Connection }) {
   const inFlight = useRef(false);
   const releaseTimer = useRef<number | undefined>(undefined);
 
+  /**
+   * The newest view, readable from an event handler.
+   *
+   * A pointer handler attached to a mesh can still be the closure from the
+   * previous render when a click arrives — the state has advanced but the
+   * board has not been redrawn yet. Reading the view through a ref means a
+   * click is always judged against what is true now, not against what was
+   * true when the marker it hit was drawn.
+   */
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
   const release = useCallback(() => {
     inFlight.current = false;
     if (releaseTimer.current !== undefined) {
@@ -119,8 +164,22 @@ export function GameScreen({ conn }: { conn: Connection }) {
 
   const onPick = useCallback(
     (id: string) => {
-      if (!view) return;
+      const view = viewRef.current;
+      if (!view || !playerId) return;
       if (inFlight.current) return;
+
+      /**
+       * Ignore a click on a marker that is no longer valid.
+       *
+       * Between the server advancing the game and the board being redrawn
+       * there is a frame or two where the old highlights are still on
+       * screen. Sending what they represent produces an action the server
+       * must refuse, and the player sees an error for a click that looked
+       * perfectly reasonable. Checking against current state turns that
+       * into a click that simply does nothing.
+       */
+      if (!isStillValid(view, playerId, mode, id)) return;
+
       inFlight.current = true;
       // If the server never answers, do not leave the board unclickable.
       releaseTimer.current = window.setTimeout(release, 4000);
@@ -156,7 +215,7 @@ export function GameScreen({ conn }: { conn: Connection }) {
       }
       setMode(null);
     },
-    [view, act, mode, release],
+    [act, mode, playerId, release],
   );
 
   const onPlayDev = useCallback(

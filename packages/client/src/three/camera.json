@@ -1,0 +1,11 @@
+{
+  "position": [0, 8.6, 9.2],
+  "target": [0, 0, 0],
+  "fov": 42,
+  "near": 0.5,
+  "far": 120,
+  "minDistance": 5,
+  "maxDistance": 20,
+  "minPolarAngle": 0.18,
+  "maxPolarAngle": 1.32
+}

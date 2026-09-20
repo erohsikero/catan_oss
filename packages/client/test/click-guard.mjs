@@ -1,82 +1,62 @@
 /**
  * Browser check for the placement click guard.
  *
- * Two properties, both of which have been broken by a previous attempt at
- * this guard: a burst of clicks on one target must send exactly one action,
- * and the board must still accept clicks straight afterwards. An earlier
- * version keyed on the game's state version, which a rejected action does
- * not advance, so one rejection wedged the board permanently.
+ * Two properties, both of which a previous version of this guard broke: a
+ * burst of clicks on one target must send exactly one action, and the board
+ * must still accept clicks straight afterwards. An earlier attempt keyed on
+ * the game's state version, which a rejected action does not advance, so a
+ * single rejection wedged the board permanently.
  *
  *   PORT=8081 HEXHAVEN_BOT_THINK_MS=0 node packages/server/dist/index.js &
  *   BASE=http://127.0.0.1:8081 CHROME_PATH=/path/to/chrome \
  *     node packages/client/test/click-guard.mjs
  */
-// Fast check of the click guard: a burst of clicks on one placement target
-// must produce exactly one action, and the board must still accept clicks
-// immediately afterwards.
-import pw from 'playwright-core';
-const { chromium } = pw;
+import { legalSettlementVertices } from '@hexhaven/shared';
+import { clearSent, clickableTarget, launch, sentActions, view, waitForView } from './harness.mjs';
+import { openTable } from './table.mjs';
+
 const BASE = process.env.BASE ?? 'http://127.0.0.1:8081';
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH,
-  args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage'],
-});
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
-await page.addInitScript(() => {
-  window.__sent = [];
-  const send = WebSocket.prototype.send;
-  WebSocket.prototype.send = function (d) {
-    try { const m = JSON.parse(d); if (m.t === 'action') window.__sent.push(m.action); } catch {}
-    return send.call(this, d);
-  };
-});
-await page.goto(BASE, { waitUntil: 'networkidle' });
-await page.fill('#room-name', 'guard');
-await page.click('text=Create table');
-await page.waitForSelector('text=At the table');
-await page.click('#clock-enabled');
-for (let i = 0; i < 40; i++) { if (!(await page.locator('#clock-enabled').isChecked())) break; await page.waitForTimeout(150); }
-for (let i = 0; i < 3; i++) { await page.click('text=Add a bot'); await page.waitForTimeout(150); }
-await page.click('text=Start the game');
-await page.waitForTimeout(1500);
+const started = Date.now();
+const { browser, page } = await launch({ base: BASE });
+const me = await openTable(page, { name: 'guard', bots: 3, clock: false });
 
-const banner = () => page.evaluate(() => document.querySelector('.turn-banner')?.textContent ?? '');
-const sent = () => page.evaluate(() => window.__sent.slice());
-for (let i = 0; i < 80; i++) { if ((await banner()).includes('You: place a settlement')) break; await page.waitForTimeout(300); }
-if (!(await banner()).includes('You: place a settlement')) { console.log('never got our turn'); process.exit(1); }
+await waitForView(page, `(v) => v.pending.kind === 'setup' && v.pending.step === 'settlement' && v.players[v.currentPlayer].id === ${JSON.stringify(me)}`);
+let state = await view(page);
+const corners = legalSettlementVertices(state, me, true);
+if (corners.length < 2) throw new Error('need at least two legal corners to test with');
 
-const points = [];
-for (let ring = 0; ring < 13; ring++) {
-  for (let a = 0; a < 20; a++) {
-    const ang = (a / 20) * Math.PI * 2, rad = 30 + ring * 27;
-    const x = Math.round(720 + Math.cos(ang) * rad * 1.35), y = Math.round(430 + Math.sin(ang) * rad * 0.8);
-    if (x >= 60 && x <= 1380 && y >= 90 && y <= 760) points.push([x, y]);
-  }
-}
+// A burst on one target that is clear of the HUD.
+const chosen = await clickableTarget(page, 'vertex', corners);
+if (!chosen) throw new Error('no legal corner is clear of the HUD');
+const first = chosen.at;
+await clearSent(page);
+await page.mouse.click(first.x, first.y);
+await page.mouse.click(first.x, first.y);
+await page.mouse.click(first.x, first.y);
+await page.waitForFunction(() => window.__sent.length > 0, null, { timeout: 4000, polling: 40 });
+await page.waitForTimeout(400);
+const burst = await sentActions(page);
+const single = burst.length === 1 && burst[0].type === 'place_setup_settlement';
+console.log(`burst of three clicks sent ${burst.length} action(s): ${JSON.stringify(burst.map((a) => a.type))}`);
+console.log(single ? '✓ exactly one action sent' : '✗ duplicates sent');
 
-let hit = null;
-for (const [x, y] of points) {
-  await page.evaluate(() => { window.__sent.length = 0; });
-  await page.mouse.click(x, y);
-  await page.mouse.click(x, y);
-  await page.mouse.click(x, y);
-  await page.waitForTimeout(450);
-  const actions = await sent();
-  if (actions.length > 0) { hit = { x, y, actions }; break; }
-}
-if (!hit) { console.log('no marker found'); process.exit(1); }
-console.log(`triple-click produced ${hit.actions.length} action(s): ${JSON.stringify(hit.actions.map((a) => a.type))}`);
-console.log(hit.actions.length === 1 ? '✓ exactly one action sent' : '✗ duplicates sent');
-console.log('banner now:', (await banner()).slice(0, 70));
+// The guard must have released: the very next step has to take a click.
+await waitForView(page, `(v) => v.pending.kind === 'setup' && v.pending.step === 'road'`);
+state = await view(page);
+const placed = state.pending.lastVertex;
+const edges = state.board.edges.filter(
+  (e) => !state.roads[e] && e.split('|').every((h) => placed.split('|').includes(h)),
+);
+const edge = edges[0];
+await clearSent(page);
+const roadChoice = await clickableTarget(page, 'edge', [edge]);
+if (!roadChoice) throw new Error('the road target is behind the HUD');
+await page.mouse.click(roadChoice.at.x, roadChoice.at.y);
+await page.waitForFunction(() => window.__sent.length > 0, null, { timeout: 4000, polling: 40 });
+const after = await sentActions(page);
+const responsive = after.some((a) => a.type === 'place_setup_road');
+console.log(responsive ? '✓ board still responsive right after the burst' : '✗ board wedged');
 
-await page.evaluate(() => { window.__sent.length = 0; });
-let advanced = false;
-for (const [x, y] of points) {
-  await page.mouse.click(x, y);
-  await page.waitForTimeout(70);
-  if (!(await banner()).includes('place a road')) { advanced = true; break; }
-}
-console.log(advanced ? '✓ board still responsive right after the burst' : '✗ board wedged');
-console.log('second phase actions:', JSON.stringify((await sent()).map((a) => a.type)));
+console.log(`done in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 await browser.close();
-process.exit(hit.actions.length === 1 && advanced ? 0 : 1);
+process.exit(single && responsive ? 0 : 1);
