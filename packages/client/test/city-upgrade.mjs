@@ -70,6 +70,44 @@ async function sweep(done, label) {
   return false;
 }
 
+/**
+ * Converts whatever is spare into the grain and ore a city needs.
+ * Returns true when a trade was actually made.
+ */
+async function tradeTowardsCity() {
+  const trade = btn('Trade');
+  if (!(await trade.count()) || (await trade.isDisabled())) return false;
+  await trade.click();
+  await page.waitForTimeout(250);
+  const modal = page.locator('.modal:has-text("Trade")');
+  if (!(await modal.count())) return false;
+
+  let done = false;
+  for (const want of ['Ore', 'Grain']) {
+    const give = modal.locator('.pick[aria-label^="Give"]:not([disabled])').first();
+    const receive = modal.locator(`.pick[aria-label="Receive ${want}"]:not([disabled])`);
+    if (!(await give.count()) || !(await receive.count())) continue;
+    // Never trade away the resource we are trying to accumulate.
+    const giveLabel = await give.getAttribute('aria-label');
+    if (giveLabel && giveLabel.includes(want)) continue;
+    await give.click();
+    await page.waitForTimeout(120);
+    if (await receive.isDisabled()) continue;
+    await receive.click();
+    await page.waitForTimeout(120);
+    const confirm = modal.locator('button:has-text("Trade")').last();
+    if (!(await confirm.isDisabled())) {
+      await confirm.click();
+      await page.waitForTimeout(300);
+      done = true;
+      break;
+    }
+  }
+  const close = modal.locator('button:has-text("Close")');
+  if (await close.count()) { await close.click(); await page.waitForTimeout(150); }
+  return done;
+}
+
 // --- opening placement -------------------------------------------------
 for (let round = 0; round < 2; round++) {
   for (let i = 0; i < 80; i++) { if ((await banner()).includes('You: place a settlement')) break; await page.waitForTimeout(300); }
@@ -81,7 +119,7 @@ console.log('✓ opening placement done via clicks');
 
 // --- play turns until a city is affordable ------------------------------
 let cityEnabled = false;
-for (let turn = 0; turn < 120 && !cityEnabled; turn++) {
+for (let turn = 0; turn < 200 && !cityEnabled; turn++) {
   if (await btn('Roll the dice').count()) { await btn('Roll the dice').click(); await page.waitForTimeout(400); }
   // A seven can interrupt with a discard dialog; take the default.
   if (await page.locator('.modal:has-text("Discard half")').count()) {
@@ -101,6 +139,11 @@ for (let turn = 0; turn < 120 && !cityEnabled; turn++) {
   }
   cityEnabled = (await btn('City').count()) > 0 && !(await btn('City').isDisabled());
   if (cityEnabled) break;
+  // A city needs grain and ore, and a randomly chosen opening may simply
+  // never produce either. Trading at the bank is what a player would do,
+  // and it makes this test depend on the flow under test rather than on
+  // where the sweep happened to place the first settlement.
+  await tradeTowardsCity();
   if (await btn('End turn').count()) {
     const b = btn('End turn');
     if (!(await b.isDisabled())) { await b.click(); await page.waitForTimeout(250); }

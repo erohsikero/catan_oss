@@ -226,13 +226,18 @@ export function TradeDialog({
                   key={r}
                   className="pick"
                   aria-pressed={bankGive === r}
+                  aria-label={`Give ${RESOURCE_META[r].label} at ${ratios[r]} to 1`}
                   disabled={you.resources[r] < ratios[r]}
                   onClick={() => setBankGive(r)}
                 >
                   <span className="glyph">
                     <ResourceIcon resource={r} size={26} />
                   </span>
-                  <span className="tiny">
+                  {/* Naming the resource: an icon and a ratio alone leave a
+                      player to recognise five drawings under time pressure,
+                      and give a screen reader nothing at all. */}
+                  <span className="tiny">{RESOURCE_META[r].label}</span>
+                  <span className="tiny faint">
                     {ratios[r]}:1 &middot; have {you.resources[r]}
                   </span>
                 </button>
@@ -247,13 +252,15 @@ export function TradeDialog({
                   key={r}
                   className="pick"
                   aria-pressed={bankWant === r}
+                  aria-label={`Receive ${RESOURCE_META[r].label}`}
                   disabled={r === bankGive || view.bank[r] === 0}
                   onClick={() => setBankWant(r)}
                 >
                   <span className="glyph">
                     <ResourceIcon resource={r} size={26} />
                   </span>
-                  <span className="tiny">bank has {view.bank[r]}</span>
+                  <span className="tiny">{RESOURCE_META[r].label}</span>
+                  <span className="tiny faint">bank has {view.bank[r]}</span>
                 </button>
               ))}
             </div>
