@@ -29,6 +29,11 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // three is large and changes rarely; keep it in its own cached chunk.
+        // three and react are large and change rarely, so they get their own
+        // long-lived cache entries. The post-processing chain is deliberately
+        // NOT listed: naming it here pulled shared dependencies into its
+        // chunk, which made the initial page depend on it and defeated the
+        // lazy import. Left alone, Rollup splits it at the dynamic import.
         manualChunks: {
           three: ['three'],
           react: ['react', 'react-dom'],

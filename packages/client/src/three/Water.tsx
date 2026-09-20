@@ -1,19 +1,23 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type * as THREE from 'three';
-import { createWaterMaterial } from './waterMaterial.js';
+import { createWaterMaterial, setWaterOutputColorSpace } from './waterMaterial.js';
 
 /**
  * The sea plane. Segmented enough for the vertex swell to show, and sized to
  * run past the horizon so the island never appears to float on a disc.
  */
-export function Water({ shoreRadius }: { shoreRadius: number }) {
+export function Water({ shoreRadius, directOutput }: { shoreRadius: number; directOutput: boolean }) {
   const material = useMemo(() => createWaterMaterial(), []);
   const ref = useRef<THREE.Mesh>(null);
 
   useMemo(() => {
     material.uniforms.uShoreRadius.value = shoreRadius;
   }, [material, shoreRadius]);
+
+  useMemo(() => {
+    setWaterOutputColorSpace(material, directOutput);
+  }, [material, directOutput]);
 
   useFrame((state) => {
     material.uniforms.uTime.value = state.clock.elapsedTime;

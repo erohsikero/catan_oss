@@ -17,6 +17,8 @@ import * as THREE from 'three';
 export function createWaterMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
+    // Toggled by `setWaterOutputColorSpace` to match how the frame is drawn.
+    defines: { SRGB_OUTPUT: '' },
     uniforms: {
       uTime: { value: 0 },
       uShallow: { value: new THREE.Color('#3f9fc4') },
@@ -103,8 +105,31 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
         base = mix(base, uFoam, foam * 0.85);
 
         gl_FragColor = vec4(base, 0.94);
-        #include <colorspace_fragment>
+
+        // Built-in materials get this conversion injected by three, but a raw
+        // ShaderMaterial has to do it itself — and only when it is drawing
+        // straight to the canvas. With post-processing on, the scene renders
+        // into a linear buffer and the composer's final pass converts, so
+        // doing it here as well would apply it twice and wash the sea out.
+        #ifdef SRGB_OUTPUT
+          #include <colorspace_fragment>
+        #endif
       }
     `,
   });
+}
+
+
+/**
+ * Tells the water whether it is drawing straight to the canvas.
+ *
+ * Exactly one stage may convert linear colour to sRGB. Direct rendering makes
+ * that the material's job; post-processing makes it the composer's.
+ */
+export function setWaterOutputColorSpace(material: THREE.ShaderMaterial, direct: boolean): void {
+  const had = 'SRGB_OUTPUT' in material.defines;
+  if (had === direct) return;
+  if (direct) material.defines.SRGB_OUTPUT = '';
+  else delete material.defines.SRGB_OUTPUT;
+  material.needsUpdate = true;
 }

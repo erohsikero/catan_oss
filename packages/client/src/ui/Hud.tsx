@@ -3,6 +3,7 @@ import type { OpponentView, PlayerView } from '@hexhaven/shared';
 import { PLAYER_PALETTE } from '../three/theme.js';
 import type { ChatMessage } from '../net/useConnection.js';
 import { CardsIcon, KnightIcon, RoadIcon, ScrollIcon } from './Icons.js';
+import { QUALITY_LABELS, QUALITY_LEVELS, type Quality } from '../three/quality.js';
 
 /** Opponent summary cards: points, hand size, army and awards at a glance. */
 export function PlayerPanels({
@@ -322,6 +323,49 @@ export function TurnTimer({ view, playerId }: { view: PlayerView; playerId: stri
           </span>
         )}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Graphics quality control.
+ *
+ * Post-processing is the largest frame cost in the scene, and the right
+ * setting depends on hardware the game cannot reliably detect. The tier is
+ * guessed on first load and remembered after that, but it stays one click
+ * away — a player whose machine struggles should not have to find a menu.
+ */
+export function QualityPicker({ quality, onChange }: { quality: Quality; onChange: (q: Quality) => void }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="quality-picker">
+      <button
+        className="btn btn-sm btn-ghost"
+        aria-expanded={open}
+        title="Graphics quality"
+        onClick={() => setOpen((v) => !v)}
+      >
+        Graphics: {QUALITY_LABELS[quality].label}
+      </button>
+      {open && (
+        <div className="quality-menu panel">
+          {QUALITY_LEVELS.map((level) => (
+            <button
+              key={level}
+              className="quality-option"
+              aria-pressed={level === quality}
+              onClick={() => {
+                onChange(level);
+                setOpen(false);
+              }}
+            >
+              <span className="quality-name">{QUALITY_LABELS[level].label}</span>
+              <span className="faint tiny">{QUALITY_LABELS[level].blurb}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

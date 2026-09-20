@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Action, DevCard, PlayerColor, Resource, ResourceBag } from '@hexhaven/shared';
 import { Scene } from '../three/Scene.js';
 import type { PickKind } from '../three/Interaction.js';
+import { loadQuality, saveQuality, type Quality } from '../three/quality.js';
 import { cityTargets, roadTargets, robberTargets, settlementTargets, setupRoadTargets } from '../game/legal.js';
 import type { Connection } from '../net/useConnection.js';
 import { ActionBar, Hand } from './Dock.js';
 import { ErrorBoundary, SceneFallback } from './ErrorBoundary.js';
-import { Dice, LogPanel, PlayerPanels, TurnBanner, TurnTimer } from './Hud.js';
+import { Dice, LogPanel, PlayerPanels, QualityPicker, TurnBanner, TurnTimer } from './Hud.js';
 import {
   DiscardDialog,
   MonopolyDialog,
@@ -24,6 +25,13 @@ export function GameScreen({ conn }: { conn: Connection }) {
   const { view, playerId, act } = conn;
   const [mode, setMode] = useState<BuildMode>(null);
   const [dialog, setDialog] = useState<'trade' | 'year_of_plenty' | 'monopoly' | null>(null);
+  // Detected once on mount, then remembered; the player can override it.
+  const [quality, setQuality] = useState<Quality>(loadQuality);
+
+  const changeQuality = useCallback((next: Quality) => {
+    setQuality(next);
+    saveQuality(next);
+  }, []);
 
   const pendingKind = view?.pending.kind;
   // Any change in what the game is waiting for invalidates a half-made choice.
@@ -166,6 +174,7 @@ export function GameScreen({ conn }: { conn: Connection }) {
             pickKind={pickKind}
             pickTargets={pickTargets}
             onPick={onPick}
+            quality={quality}
           />
         </ErrorBoundary>
       </div>
@@ -177,6 +186,7 @@ export function GameScreen({ conn }: { conn: Connection }) {
             <TurnBanner view={view} playerId={playerId} />
             <TurnTimer view={view} playerId={playerId} />
             <Dice dice={view.dice} />
+            <QualityPicker quality={quality} onChange={changeQuality} />
           </div>
         </div>
 

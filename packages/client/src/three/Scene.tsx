@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -9,8 +9,18 @@ import { Harbors, NumberTokens } from './Decor.js';
 import { Buildings, Roads, Robber } from './Pieces.js';
 import { Seabed, Water } from './Water.js';
 import { PlacementTargets, type PickKind } from './Interaction.js';
+
+import { BoardContactShadows } from './Shadows.js';
 import { createEnvironment } from './environment.js';
 import { HEX_SIZE } from './theme.js';
+import type { Quality } from './quality.js';
+
+/**
+ * The post-processing chain is the heaviest dependency in the client, and a
+ * player on the plain tier never needs it. Loading it on demand keeps the
+ * initial bundle small and the first frame early.
+ */
+const Effects = lazy(() => import('./Effects.js'));
 
 export interface SceneProps {
   view: PlayerView;
@@ -19,6 +29,7 @@ export interface SceneProps {
   pickKind: PickKind | null;
   pickTargets: readonly string[];
   onPick: (id: string) => void;
+  quality: Quality;
 }
 
 /**
@@ -69,7 +80,7 @@ function Lighting() {
   );
 }
 
-function BoardContents({ view, colorOf, myColor, pickKind, pickTargets, onPick }: SceneProps) {
+function BoardContents({ view, colorOf, myColor, pickKind, pickTargets, onPick, quality }: SceneProps) {
   // The coastline sits a little beyond the outermost tile centres.
   const shoreRadius = useMemo(() => (view.board.radius + 0.62) * HEX_SIZE * Math.sqrt(3), [view.board.radius]);
 
@@ -77,7 +88,7 @@ function BoardContents({ view, colorOf, myColor, pickKind, pickTargets, onPick }
     <>
       <Lighting />
       <Seabed />
-      <Water shoreRadius={shoreRadius} />
+      <Water shoreRadius={shoreRadius} directOutput={quality === 'off'} />
       <Tiles tiles={view.board.tiles} />
       <TerrainProps tiles={view.board.tiles} />
       <NumberTokens tiles={view.board.tiles} robber={view.robber} />
@@ -85,7 +96,15 @@ function BoardContents({ view, colorOf, myColor, pickKind, pickTargets, onPick }
       <Roads roads={view.roads} colorOf={colorOf} />
       <Buildings buildings={view.buildings} colorOf={colorOf} />
       <Robber hex={view.robber} />
+      <BoardContactShadows view={view} enabled={quality !== 'off'} />
       <PlacementTargets kind={pickKind} targets={pickTargets} color={myColor} onPick={onPick} />
+      {quality !== 'off' && (
+        // The board is already on screen while this loads; there is nothing
+        // meaningful to show in its place.
+        <Suspense fallback={null}>
+          <Effects quality={quality} />
+        </Suspense>
+      )}
     </>
   );
 }
@@ -97,9 +116,12 @@ export function Scene(props: SceneProps) {
       dpr={[1, 2]}
       camera={{ position: [0, 8.6, 9.2], fov: 42, near: 0.5, far: 120 }}
       gl={{
-        antialias: true,
+        // Anti-aliasing is handled by SMAA on the top tier; keeping the
+        // built-in pass as well would cost a second resolve for nothing.
+        antialias: props.quality !== 'high',
         // Filmic tone mapping keeps the bright sea and dark forests from
-        // clipping at either end.
+        // clipping at either end. `Effects` moves this into the composer
+        // when post-processing is on, so bloom sees the full range.
         toneMapping: THREE.ACESFilmicToneMapping,
         toneMappingExposure: 1.08,
       }}

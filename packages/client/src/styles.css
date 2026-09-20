@@ -937,3 +937,44 @@ select:focus {
   line-height: 1.25;
   min-width: 96px;
 }
+
+/* --- graphics quality ---------------------------------------------------- */
+
+.quality-picker {
+  position: relative;
+  align-self: flex-end;
+}
+
+.quality-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 250px;
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+  z-index: 30;
+}
+
+.quality-option {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+
+.quality-option:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.quality-option[aria-pressed='true'] {
+  border-color: var(--brass);
+  background: rgba(224, 176, 96, 0.14);
+}
+
+.quality-name {
+  font-weight: 650;
+  font-size: 13px;
+}
