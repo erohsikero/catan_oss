@@ -29,7 +29,7 @@ const browser = await chromium.launch({
 const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://127.0.0.1:8076', { waitUntil: 'networkidle' });
+await page.goto(BASE, { waitUntil: 'networkidle' });
 
 await page.fill('#room-name', 'city ui');
 await page.click('text=Create table');
